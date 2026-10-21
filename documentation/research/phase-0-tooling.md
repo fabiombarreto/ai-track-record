@@ -8,7 +8,7 @@ The facts were collected on 2026-10-20 from primary sources: official documentat
 
 ## 1. Summary
 
-All three recommendations were accepted on 2026-10-20.
+All three recommendations were accepted on 2026-10-20. On 2026-10-21, runs moved to the Claude Agent SDK so that the Max plan's included API credits pay for them ([D-049](../decisions/decision-log.md#d-049)); see [section 3.1](#31-running-through-the-agent-sdk-d-049).
 
 | Decision | Recommendation | Main reason |
 |---|---|---|
@@ -49,7 +49,32 @@ Consequences:
 
 **Version to pin:** the latest release when Phase 0 starts, and no older than 2.1.304.
 
-**Paying for runs:** an API key, as [D-027](../decisions/decision-log.md#d-027) requires. A dedicated key in its own workspace, with a spend limit equal to the MVP ceiling of US$ 800 ([D-028](../decisions/decision-log.md#d-028)), turns the soft per-run caps into a hard stop at the provider.
+**Paying for runs:** API access, as [D-027](../decisions/decision-log.md#d-027) requires. The API credits included in the Max 5x plan, US$ 100 a month, pay first, through the Agent SDK ([D-049](../decisions/decision-log.md#d-049)); purchased credits pay the rest. A dedicated workspace with a monthly spend limit gives a hard stop at the provider, and the harness tracks cumulative spend against the US$ 800 MVP ceiling ([D-028](../decisions/decision-log.md#d-028)).
+
+### 3.1 Running through the Agent SDK (D-049)
+
+The Python Agent SDK (`claude-agent-sdk`) runs the same Claude Code engine, bundled at a version pinned to the SDK's own version. The runner maps each CLI setting to an SDK option:
+
+| CLI | Agent SDK |
+|---|---|
+| `--plugin-dir <path>` | `plugins=[{"type": "local", "path": <path>}]` |
+| A prompt such as `/relay:relay-execute <prd>` | The same string as the prompt |
+| `--model` | `model` |
+| `--permission-mode bypassPermissions` | `permission_mode="bypassPermissions"` |
+| `--max-budget-usd`, `--max-turns` | `max_budget_usd`, `max_turns` |
+| Project settings and `CLAUDE.md`, which the CLI loads by default | `setting_sources=["project"]` |
+| Claude Code's system prompt, which the CLI uses by default | `system_prompt={"type": "preset", "preset": "claude_code"}` |
+| Environment variables | `env`, merged onto the inherited environment in Python |
+| Other CLI flags, such as `--session-id` | `extra_args` (unverified) |
+| The final `result` event | A `ResultMessage` with the same cost and usage fields |
+
+Caveats:
+
+- **Defaults differ.** The SDK's defaults for the system prompt and settings are not the CLI's, so the runner sets both explicitly. Check 10 confirms that a run behaves like the CLI.
+- **Engine version.** Pinning the SDK pins the bundled engine, which must be 2.1.304 or later.
+- **Billing guard.** The included credits cover the Agent SDK, not the CLI. A CLI request with a key from the linked organization fails with "Credit balance too low", so a run on the wrong path stops instead of being billed elsewhere.
+- **Plugin paths.** The SDK silently skips a plugin path that does not exist, so the runner checks the init message.
+- **Rate limits.** The linked organization starts at the Start tier, which may limit parallel runs.
 
 ## 4. Runner options (D-030)
 
@@ -178,7 +203,7 @@ Every one of these platforms integrates with Claude Code through hooks that rebu
 
 ## 7. Phase 0 checks
 
-Each check passes or fails. If Harbor fails checks 1, 3 or 8, the custom runner replaces it.
+Each check passes or fails. If Harbor fails checks 1, 3 or 8, the custom runner replaces it. If check 10 fails, runs go back to the CLI, paid with purchased credits ([D-049](../decisions/decision-log.md#d-049)).
 
 1. **Plugin and version.** The `system/init` event lists relay with no `plugin_errors`, and the Claude Code version equals the pin.
 2. **Forced models.** Every model in `modelUsage` and in the `api_request` events is the model under test, including on a sub-agent whose definition names another model. Background calls are either pinned too or recorded separately.
@@ -189,6 +214,7 @@ Each check passes or fails. If Harbor fails checks 1, 3 or 8, the custom runner 
 7. **Killed run.** Events up to the kill are kept, and the run is classified as `timed_out`.
 8. **Stability.** Three parallel runs of an hour or more complete under WSL 2, a resumed job continues, and a timed-out run is still graded.
 9. **Cost.** The summed cost is within tolerance of the provider's usage report for the dedicated key.
+10. **Agent SDK parity and billing.** A run through the SDK loads `CLAUDE.md`, relay and the Claude Code system prompt, as a CLI run does, and its spend is drawn from the included credits.
 
 ## 8. Unverified items
 
@@ -199,6 +225,8 @@ Each check passes or fails. If Harbor fails checks 1, 3 or 8, the custom runner 
 - Whether DuckDB's OTLP extension reads Claude Code's counter metrics; plain JSON reading is the fallback.
 - MLflow under WSL 2, and linking its traces to runs.
 - Whether 5-minute and 1-hour cache writes can be told apart for exact pricing. Pinning the cache duration avoids the question.
+- The Agent SDK's defaults for the system prompt and settings, and its `extra_args` option.
+- How billing tells Agent SDK requests from CLI requests, and whether every run is drawn from the included credits.
 - All effort estimates.
 
 ## 9. Sources

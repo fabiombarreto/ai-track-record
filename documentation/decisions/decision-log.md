@@ -62,6 +62,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 | [D-046](#d-046) | Phase 0 task: a synthetic Django backend in pull-request format | Accepted |
 | [D-047](#d-047) | Harness language: Python 3.12, managed with uv | Accepted |
 | [D-048](#d-048) | Phase 0 is built in interactive sessions | Accepted |
+| [D-049](#d-049) | Runs go through the Agent SDK, paid with the Max plan's API credits | Accepted |
 
 ## Decisions
 
@@ -201,7 +202,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Status:** Accepted, 2026-10-20. Proposed 2026-10-19.
 - **Decision:** Use Claude Code, at a pinned version, as the only harness until Phase 3.
 - **Why:** Relay is a Claude Code plugin. Commands and sub-agents are not portable across coding-agent tools; current cross-tool standards cover only skills and MCP servers. A fixed harness also isolates the effect of models and workflows.
-- **Note:** For the MVP, the harness is already settled by [D-024](#d-024).
+- **Note:** For the MVP, the harness is already settled by [D-024](#d-024). From [D-049](#d-049), Claude Code runs through its Agent SDK.
 
 ### D-018
 
@@ -283,6 +284,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Status:** Accepted, 2026-10-20. Proposed 2026-10-19.
 - **Decision:** Benchmark runs use API keys or credits meant for programmatic use, never consumer subscriptions or free tiers.
 - **Why:** Consumer terms restrict automated use and their limits assume individual use. Free tiers often allow training on submitted content.
+- **Note:** The API credits included in the Max plan count as API access; [D-049](#d-049) uses them.
 
 ### D-028
 
@@ -291,7 +293,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Status:** Accepted, 2026-10-20
 - **Decision:** Model API spend for the MVP is capped at US$ 800, including pilot runs and retries. The ceiling is re-evaluated at M0 with the actual cost of the Phase 0 pilot runs.
 - **Why:** It covers the central estimate for the frozen scope ([D-024](#d-024)), about US$ 600, with a margin of about a third. It does not cover the heavy-run scenario, up to about US$ 1,340; the pilot runs show which scenario applies. See the [estimates](../product/06-scope-and-roadmap.md#8-effort-and-cost-estimates).
-- **Consequences:** The per-experiment cap ([EXP-03](../product/03-capabilities.md#3-experiments)) is set from this ceiling. If the pilot runs show that the 45 runs will not fit, the ceiling is revisited at M0; reducing the frozen scope would need a new decision. The Phase 2 budget is [D-044](#d-044).
+- **Consequences:** The per-experiment cap ([EXP-03](../product/03-capabilities.md#3-experiments)) is set from this ceiling. If the pilot runs show that the 45 runs will not fit, the ceiling is revisited at M0; reducing the frozen scope would need a new decision. The Phase 2 budget is [D-044](#d-044). From [D-049](#d-049), the Max plan's included API credits (US$ 100 a month) pay first, and purchased credits pay the rest, up to the ceiling.
 
 ### D-029
 
@@ -313,7 +315,8 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Consequences:**
   - If Harbor fails the [Phase 0 checks](../research/phase-0-tooling.md#7-phase-0-checks) on plugin loading, hidden tests or stability, a minimal custom container runner replaces it, using the same task folders.
   - The [integrity requirements](../research/phase-0-tooling.md#5-integrity-requirements-for-any-runner) apply: single-commit workspaces with no history, grading in a fresh container, one container per run, contained agents, and a dedicated API key with a spend limit. They make capabilities RUN-01, TGT-03 and GRD-01 more precise without adding to the frozen scope ([D-024](#d-024)).
-  - Each run image pins Claude Code at the latest release when Phase 0 starts, and no older than 2.1.304.
+  - Each run image pins the Claude Code engine at the latest release when Phase 0 starts, and no older than 2.1.304.
+  - With [D-049](#d-049), runs use a custom Harbor agent that drives the Agent SDK instead of Harbor's built-in Claude Code agent.
 - **Evidence:** [Phase 0 tooling](../research/phase-0-tooling.md#4-runner-options-d-030). Alternatives considered: Inspect AI with inspect_swe, and a custom runner.
 
 ### D-031
@@ -476,3 +479,18 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Status:** Accepted, 2026-10-21
 - **Decision:** The Phase 0 environment and code are built in interactive Claude Code sessions, not through relay's autonomous pipeline.
 - **Why:** Phase 0 is exploratory, and its design will change as the checks run. Whether later harness work goes through relay is decided after Phase 0.
+
+### D-049
+
+**Runs go through the Agent SDK, paid with the Max plan's API credits**
+
+- **Status:** Accepted, 2026-10-21
+- **Decision:** Benchmark runs use the Claude Agent SDK instead of the `claude` CLI. They are paid first with the API credits included in the owner's Max 5x plan (US$ 100 a month), through a Console organization linked to the plan, and then with purchased credits, always within the MVP ceiling ([D-028](#d-028)).
+- **Why:** The included credits are already paid for and are meant for programmatic use, so they meet [D-027](#d-027). They cover the API and the Agent SDK, but not the Claude Code CLI. The SDK runs the same Claude Code engine, which it bundles, and it loads local plugins.
+- **Consequences:**
+  - Relay and vanilla both run through the SDK, so every comparison uses one path.
+  - Each adapter becomes a small Python runner inside the container. It must set what the CLI does by default: the Claude Code system prompt and loading the project's settings and `CLAUDE.md`. Phase 0 confirms that the SDK reproduces the CLI's behavior ([check 10](../research/phase-0-tooling.md#7-phase-0-checks)).
+  - The pinned SDK version fixes the Claude Code engine, since the SDK bundles it.
+  - The credits expire each billing cycle without rollover, and every key in the linked organization draws from them. The linked organization starts at the Start rate-limit tier, which may limit parallel runs.
+  - If the SDK cannot reproduce the CLI's behavior, runs go back to the CLI, paid with purchased credits.
+- **Evidence:** [API credits for Max and Team plans](https://platform.claude.com/docs/en/about-claude/api-credits-for-subscribers), the [Consumer Terms](https://www.anthropic.com/legal/consumer-terms) (section 3, item 7) and [Claude Code's legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance.md), all read on 2026-10-21.

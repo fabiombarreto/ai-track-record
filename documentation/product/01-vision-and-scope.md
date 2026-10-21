@@ -169,6 +169,7 @@ These are believed to be true but are not yet verified. Phase 0 tests the first 
 | AS-5 | Target A's tasks can be specified with an interface contract precise enough for hidden tests | Tasks are redesigned or replaced |
 | AS-6 | Three repetitions are enough to separate configurations that differ meaningfully | More repetitions, or fewer configurations |
 | AS-7 | Model providers can receive Target A's content by milestone M0 ([D-029](../decisions/decision-log.md#d-029)) | The MVP waits, or runs on a public target instead |
+| AS-8 | The Agent SDK reproduces the CLI's behavior for relay ([D-049](../decisions/decision-log.md#d-049)) | Runs go back to the CLI, paid with purchased credits |
 
 ## 8. Questions AI Track Record answers
 

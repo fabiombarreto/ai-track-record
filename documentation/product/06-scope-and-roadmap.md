@@ -146,11 +146,12 @@ Order-of-magnitude estimates from the planning analysis of 2026-10-19. They assu
 
 Machine time is the sum of run durations; running two or three runs in parallel shortens the calendar time.
 
-**MVP budget ceiling:** US$ 800, including pilot runs and retries ([D-028](../decisions/decision-log.md#d-028)). It covers the central estimate with a margin of about a third, but not the heavy-run scenario; the pilot runs show which one applies.
+**MVP budget ceiling:** US$ 800, including pilot runs and retries ([D-028](../decisions/decision-log.md#d-028)). It covers the central estimate with a margin of about a third, but not the heavy-run scenario; the pilot runs show which one applies. The Max plan's included API credits, US$ 100 a month, pay first ([D-049](../decisions/decision-log.md#d-049)).
 
 Ways to keep spend down:
 
 - Develop and debug the harness with the cheapest model.
+- Spread runs across billing cycles, so each month's included credits are used before they expire.
 - Change one factor at a time instead of running every combination.
 - Start with 3 repetitions and add more only for close finalists.
 - Prefer small tasks; a single-phase task costs about half as much as a medium one.

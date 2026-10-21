@@ -5,7 +5,7 @@
 Phase 0 proves that a task can run unattended end to end, with full telemetry and grading, before any work on the dashboard. It ends at milestone **M0 on 2026-11-03** ([schedule](../product/06-scope-and-roadmap.md#4-schedule-to-the-mvp)) with:
 
 - one relay run and one vanilla run on the synthetic task, graded by its hidden oracle, with reconciled cost;
-- the nine [Phase 0 checks](../research/phase-0-tooling.md#7-phase-0-checks) run, deciding whether Harbor stays ([D-030](../decisions/decision-log.md#d-030));
+- the ten [Phase 0 checks](../research/phase-0-tooling.md#7-phase-0-checks) run, deciding whether Harbor stays ([D-030](../decisions/decision-log.md#d-030)) and whether runs stay on the Agent SDK ([D-049](../decisions/decision-log.md#d-049));
 - the provider decision for Target A made ([D-029](../decisions/decision-log.md#d-029)) and the MVP budget re-evaluated ([D-028](../decisions/decision-log.md#d-028)).
 
 ## 1. Scope
@@ -24,6 +24,7 @@ Phase 0 proves that a task can run unattended end to end, with full telemetry an
 | [D-047](../decisions/decision-log.md#d-047) | Harness code in Python 3.12 with uv |
 | [D-048](../decisions/decision-log.md#d-048) | Built in interactive Claude Code sessions |
 | [D-027](../decisions/decision-log.md#d-027), [D-028](../decisions/decision-log.md#d-028) | A dedicated API key; spend counted against the US$ 800 MVP ceiling |
+| [D-049](../decisions/decision-log.md#d-049) | Runs go through the Agent SDK, paid first with the Max plan's US$ 100 of monthly API credits |
 
 ## 3. Workspace layout
 
@@ -104,7 +105,8 @@ Before any agent runs it (TGT-04):
 ### 5.1 What both adapters share
 
 - **Run product:** each adapter ends by writing the run's changes as one `changes.patch` against the base commit. The separate verifier applies that patch to a clean copy of the base and runs the tests. This works the same way for every workflow, and only the patch crosses from the agent's container to the verifier.
-- **Pinned Claude Code:** the version is baked into the image: the latest release when Phase 0 starts, no older than 2.1.304 (2.1.306 on 2026-10-21).
+- **One runner for every workflow:** a small Python runner inside the container calls the Agent SDK ([D-049](../decisions/decision-log.md#d-049)). It passes the prompt, the model, the plugin (relay only), the Claude Code system prompt, the project's settings and the limits. It streams every message to a JSONL file and writes the final result. A custom Harbor agent installs and starts it.
+- **Pinned engine:** the Agent SDK version is pinned in the image, and the Claude Code engine it bundles must be 2.1.304 or later (2.1.306 was current on 2026-10-21).
 - **Limits:** a 3-hour agent timeout, a 15-minute verifier timeout, a per-run cost cap (US$ 15 for the pilots) and an explicit `bypassPermissions` mode inside the container.
 
 | Setting | Value |
@@ -116,21 +118,21 @@ Before any agent runs it (TGT-04):
 
 ### 5.2 Relay
 
-- The pinned relay checkout is mounted read-only into the container, and `--plugin-dir` points at its `plugins/relay` folder. This is done by a small subclass of Harbor's Claude Code agent, or through `CLAUDE_CODE_PLUGIN_DIRS`, whichever passes check 1.
+- The pinned relay checkout is mounted read-only into the container, and the runner passes its `plugins/relay` folder through the SDK's `plugins` option.
 - The prompt is `/relay:relay-execute PRPs/prds/<task>.prd.md`.
 - Relay works in a git worktree under `.worktrees/<feature>`, so the adapter builds `changes.patch` from that worktree. Relay's plans and reports are kept as workflow artifacts.
 - If relay's precondition checks wait for an answer, relay gets a non-interactive mode in its own repository, and the new commit is pinned (assumption AS-1).
 
 ### 5.3 Vanilla
 
-Harbor's built-in Claude Code agent with the same settings and limits. Its instruction is a fixed template, the same for every task:
+The same runner, without a plugin, with the same settings and limits. Its instruction is a fixed template, the same for every task:
 
 > Implement the feature specified in `PRPs/prds/<task>.prd.md`. Keep the existing tests passing. Stop when the feature is complete.
 
 ## 6. Telemetry and the local store
 
 1. **Collector.** `infra/otel-collector/` runs the OpenTelemetry Collector (contrib image, pinned) in Docker. It receives OTLP over HTTP on port 4318 and writes rotating JSON files to `~/atr/data/telemetry/`.
-2. **Per-run settings.** `CLAUDE_CODE_ENABLE_TELEMETRY=1`; metric and log exporters set to OTLP over `http/protobuf`; the endpoint the containers use to reach the host (`host.docker.internal:4318`); export intervals of one second; a longer shutdown timeout; `OTEL_LOG_TOOL_DETAILS=1`, so relay's agent names appear; and resource attributes carrying the run, task and configuration IDs. Each run also gets a fixed `--session-id`.
+2. **Per-run settings,** passed through the SDK's `env`: `CLAUDE_CODE_ENABLE_TELEMETRY=1`; metric and log exporters set to OTLP over `http/protobuf`; the endpoint the containers use to reach the host (`host.docker.internal:4318`); export intervals of one second; a longer shutdown timeout; `OTEL_LOG_TOOL_DETAILS=1`, so relay's agent names appear; and resource attributes carrying the run, task and configuration IDs. Each run also gets a fixed `--session-id`.
 3. **Loader.** A first version reads Harbor's trial folders (result, final stream-json event, verifier reward, `changes.patch`) and the telemetry files into DuckDB. It then compares the telemetry sums with `modelUsage` and flags any mismatch.
 4. **Not yet.** The MLflow viewer and the trace export are optional and wait until they are needed.
 
@@ -138,16 +140,16 @@ Harbor's built-in Claude Code agent with the same settings and limits. Its instr
 
 | WP | Content | Who | Effort | Target date | Done when |
 |---|---|---|---|---|---|
-| **0** | Create a dedicated API key in its own workspace with a US$ 800 spend limit; store it in `~/atr/.env` | Operator | 0.5 h | 2026-10-22 | A test call with the key works from WSL |
+| **0** | Link a Console organization to the Max 5x plan to claim its US$ 100 monthly API credits (only support can change the link later); create a dedicated workspace with a monthly spend limit and an API key in it; store the key in `~/atr/.env` | Operator | 0.5–1 h | 2026-10-22 | The credits show in the Console and the key is stored |
 | **1** | Update WSL (`wsl --update`) to 2.7.8 or later; set `.wslconfig` (about 18 GB of memory and 10 processors); install uv; create `~/atr/` | Operator, with a session | 1.5–2.5 h | 2026-10-23 | `wsl --version` shows the new kernel; Docker and uv work in Ubuntu |
-| **2** | Clone Harbor at its latest release tag and install it from the lock file; run its sample task with the `oracle` agent, then with the Claude Code agent on Haiku | Session | 2–3 h | 2026-10-24 | Both sample runs finish with results and a transcript; no traffic to PostHog |
+| **2** | Clone Harbor at its latest release tag and install it from the lock file; run its sample task with the `oracle` agent, then with a minimal Agent SDK agent on Haiku | Session | 3–4 h | 2026-10-24 | Both sample runs finish with results and a transcript; the spend comes from the included credits; no traffic to PostHog |
 | **3** | Build the synthetic target (base commit and solution branch), write and approve the specification, write the task builder and validate the task | Session | 5–7 h | 2026-10-28 | `oracle` scores 1.0, `nop` scores 0.0 and the existing suite passes |
-| **4** | Pin relay; write the relay adapter and configure vanilla; produce `changes.patch`; check that relay runs unattended | Session | 2–3 h | 2026-10-30 | A relay run on Haiku completes and is graded |
+| **4** | Pin relay; write the Agent SDK runner and the relay and vanilla adapters; produce `changes.patch`; check that relay runs unattended and that the SDK behaves like the CLI (check 10) | Session | 3–5 h | 2026-10-30 | A relay run on Haiku completes and is graded |
 | **5** | Set up the Collector, the per-run telemetry settings and the first loader | Session | 3–4 h | 2026-10-31 | One run's telemetry and result are in DuckDB and reconciled |
-| **6** | Pilot runs (relay on Haiku, relay on Sonnet, vanilla on Sonnet), three parallel runs for stability, a killed run and the cost comparison | Operator, with a session | 3–4 h, plus machine time | 2026-11-02 | All nine checks have a result |
+| **6** | Pilot runs (relay on Haiku, relay on Sonnet, vanilla on Sonnet), three parallel runs for stability, a killed run and the cost comparison | Operator, with a session | 3–4 h, plus machine time | 2026-11-02 | All ten checks have a result |
 | **7** | M0 review: Harbor stays or goes, D-029, the D-028 re-evaluation, and the results report | Operator | 1 h | 2026-11-03 | Decisions recorded; [schedule](../product/06-scope-and-roadmap.md#4-schedule-to-the-mvp) re-forecast |
 
-**Total: about 18–25 hours.** That is more than the 15–20 hours the schedule gives M0, so at 10–15 hours a week M0 lands on time only at the top of that range. If it slips, the date moves and the scope stays ([D-043](../decisions/decision-log.md#d-043)). If time runs short, the loader's polish moves to M2; the checks stay, because they decide whether Harbor is kept.
+**Total: about 20–28 hours.** That is more than the 15–20 hours the schedule gives M0, so at 10–15 hours a week M0 lands on time only at the very top of that range. If it slips, the date moves and the scope stays ([D-043](../decisions/decision-log.md#d-043)). If time runs short, the loader's polish moves to M2; the checks stay, because they decide whether Harbor is kept.
 
 ## 8. Expected spend
 
@@ -156,7 +158,7 @@ Harbor's built-in Claude Code agent with the same settings and limits. Its instr
 | Debug runs on Haiku | US$ 5–20 |
 | Three pilot runs | US$ 10–40 |
 | Stability and kill tests | US$ 10–35 |
-| **Phase 0 total** | **about US$ 30–90**, counted against the US$ 800 MVP ceiling |
+| **Phase 0 total** | **about US$ 30–90**, within one month of the Max plan's included credits (US$ 100) and counted against the US$ 800 MVP ceiling |
 
 ## 9. Risks and fallbacks
 
@@ -167,10 +169,12 @@ Harbor's built-in Claude Code agent with the same settings and limits. Its instr
 | Relay waits for input in unattended mode | Add a non-interactive mode to relay and pin the new commit |
 | Telemetry does not reach the Collector from the containers | Phase 0 relies on the result event and transcripts; the telemetry path is fixed in M2 |
 | Model forcing misses some calls | Pin the background model as well, or record those calls separately (check 2) |
+| The Agent SDK does not behave like the CLI (check 10) | Runs go back to the CLI, paid with purchased credits ([D-049](../decisions/decision-log.md#d-049)) |
+| The Start rate-limit tier slows parallel runs | Run fewer runs in parallel; purchased spend can move the organization to a higher tier |
 
 ## 10. Outputs at M0
 
-- The harness skeleton in `harness/`: task builder, relay adapter, loader.
+- The harness skeleton in `harness/`: task builder, Agent SDK runner, relay and vanilla adapters, loader.
 - The Collector configuration in `infra/otel-collector/`.
 - The synthetic target repository and its task manifest.
 - A results report, `documentation/research/phase-0-results.md`, with the outcome of every check, costs and durations.

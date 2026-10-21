@@ -58,7 +58,7 @@ Executable acceptance tests derived from the specification's acceptance criteria
 
 ### Harness
 
-The agent runtime that executes a run, pinned to an exact version, for example the Claude Code CLI. The early phases use Claude Code only ([D-017](../decisions/decision-log.md#d-017)); other harnesses can be added later through harness adapters.
+The agent runtime that executes a run, pinned to an exact version, for example Claude Code, which AI Track Record runs through its Agent SDK ([D-049](../decisions/decision-log.md#d-049)). The early phases use Claude Code only ([D-017](../decisions/decision-log.md#d-017)); other harnesses can be added later through harness adapters.
 
 ### Workflow
 
