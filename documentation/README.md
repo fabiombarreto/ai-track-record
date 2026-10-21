@@ -20,6 +20,14 @@ This folder is the source of truth for what the product is, why it exists and wh
 | 6 | [Scope, roadmap and risks](product/06-scope-and-roadmap.md) | Phases, MVP scope, success criteria, estimates, risks and mitigations |
 | — | [Decision log](decisions/decision-log.md) | Every decision and its status: Accepted, Proposed or Open |
 
+## Plans
+
+Execution plans, one per phase.
+
+| Document | What it covers |
+|---|---|
+| [Phase 0 plan](plans/phase-0.md) | The feasibility spike up to milestone M0: environment, Harbor, the synthetic task, adapters and telemetry |
+
 ## Research
 
 Evidence gathered to support specific decisions.

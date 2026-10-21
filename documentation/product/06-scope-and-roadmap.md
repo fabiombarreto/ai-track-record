@@ -17,7 +17,7 @@ flowchart LR
 
 | Phase | Purpose | Exit criterion |
 |---|---|---|
-| **0. Feasibility spike** | Prove that a task can run unattended end to end, with full telemetry and grading | One relay run and one vanilla run on a small public or synthetic task, graded by a hidden oracle, with reconciled cost |
+| **0. Feasibility spike** | Prove that a task can run unattended end to end, with full telemetry and grading | One relay run and one vanilla run on the synthetic task, graded by a hidden oracle, with reconciled cost |
 | **1. MVP** | Publish the first trustworthy results | The MVP success criteria below are met and the dashboard is public |
 | **2. Credibility and breadth** | Make results verifiable and compare more dimensions | A public reference target, mixed model assignments and non-Anthropic models are on the dashboard, and the findings are published |
 | **3. Optional extensions** | Study further questions, chosen after Phase 2 | Each chosen extension is published with a write-up |
@@ -27,7 +27,7 @@ The study ends when Phase 2 closes or, if extensions are chosen, when Phase 3 cl
 
 ## 2. Phase 0: feasibility spike
 
-The spike answers the technical unknowns before any work on the dashboard. It uses a small public or synthetic task, so it does not depend on the provider decision for Target A ([D-029](../decisions/decision-log.md#d-029)).
+The spike answers the technical unknowns before any work on the dashboard. It uses a small synthetic task ([D-046](../decisions/decision-log.md#d-046)), so it does not depend on the provider decision for Target A ([D-029](../decisions/decision-log.md#d-029)). The [Phase 0 plan](../plans/phase-0.md) breaks it into work packages.
 
 - Can relay's autonomous pipeline run with no human input, including its precondition checks?
 - Can every sub-agent be forced to use the model under test, even when its prompt names a fixed model?

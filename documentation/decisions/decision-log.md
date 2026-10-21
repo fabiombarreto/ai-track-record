@@ -59,6 +59,9 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 | [D-043](#d-043) | When the MVP runs late, the date moves, not the scope | Accepted |
 | [D-044](#d-044) | Budget ceiling for Phase 2 | Open |
 | [D-045](#d-045) | LangSmith and Langfuse as reference designs only | Accepted |
+| [D-046](#d-046) | Phase 0 task: a synthetic Django backend in pull-request format | Accepted |
+| [D-047](#d-047) | Harness language: Python 3.12, managed with uv | Accepted |
+| [D-048](#d-048) | Phase 0 is built in interactive sessions | Accepted |
 
 ## Decisions
 
@@ -362,6 +365,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Question:** Which project becomes the public reference target?
 - **Options:** an existing open-source project with a good test suite, or a small project built for the benchmark with a stack similar to Target A's.
 - **Considerations:** Well-known open-source projects may be part of model training data. A similar stack makes results comparable with Target A. The project's license must allow publishing derived tasks.
+- **Open-source slices (2026-10-21):** a slice turns a merged pull request into a task. The commit before it is the base, its tests are the hidden oracle and its diff is the reference solution. Pull requests merged after the models' training cut-off limit contamination. Healthchecks (BSD-3-Clause) is the first candidate; NetBox (Apache-2.0) and Saleor (BSD-3-Clause) are larger alternatives. Copyleft projects such as Plane (AGPL-3.0) could only be referenced, not copied into this MIT-licensed repository. The synthetic target from Phase 0 ([D-046](#d-046)) uses the same pull-request format and is the fallback.
 - **Needed by:** Phase 2. Depends on [D-012](#d-012).
 
 ### D-036
@@ -447,3 +451,28 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Status:** Accepted, 2026-10-21
 - **Decision:** LangSmith and Langfuse are not used in AI Track Record. They serve only as guidance and as examples to follow.
 - **Consequences:** Their concepts, such as traces and spans, scores attached to runs, datasets, experiments and side-by-side comparison of runs, guide the design of the local store and the dashboard where they fit. They are implemented on the local stack ([D-032](#d-032), [D-033](#d-033)), and nothing is sent to either product.
+
+### D-046
+
+**Phase 0 task: a synthetic Django backend in pull-request format**
+
+- **Status:** Accepted, 2026-10-21
+- **Decision:** Phase 0 uses a small synthetic target: a Django API on PostgreSQL in a neutral domain, event registration with capacity and a waitlist. Its task is authored like a pull request. The base commit becomes the starting point, the tests added by the change become the hidden oracle, and the rest of the change becomes the reference solution.
+- **Why:** It exercises the stack that the MVP tasks need without waiting for [D-029](#d-029). It avoids contamination and license questions. It also builds the same path from pull request to task that Target A's tasks and public open-source slices will use.
+- **Consequences:** The synthetic target is public and can seed the public reference target ([D-012](#d-012)). See the [Phase 0 plan](../plans/phase-0.md#4-the-synthetic-target-and-its-task).
+
+### D-047
+
+**Harness language: Python 3.12, managed with uv**
+
+- **Status:** Accepted, 2026-10-21
+- **Decision:** AI Track Record's own code is written in Python 3.12 or later. uv manages the Python version and locks the dependencies.
+- **Why:** Harbor, DuckDB and MLflow are Python tools, so one language covers the runner extensions, the loader and the analysis.
+
+### D-048
+
+**Phase 0 is built in interactive sessions**
+
+- **Status:** Accepted, 2026-10-21
+- **Decision:** The Phase 0 environment and code are built in interactive Claude Code sessions, not through relay's autonomous pipeline.
+- **Why:** Phase 0 is exploratory, and its design will change as the checks run. Whether later harness work goes through relay is decided after Phase 0.

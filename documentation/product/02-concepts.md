@@ -83,7 +83,7 @@ The integration that lets AI Track Record run a workflow. Adding a workflow mean
 5. **Specification placement**: how the canonical specification is put where the workflow expects it. Adapters may change format and location, never content.
 6. **Completion and outcome mapping**: how to detect the end of a run and map the workflow's own outcomes (for example relay's HALT codes) to normalized outcomes.
 7. **Stage map** (optional): how to attribute time and tokens to stages such as planning, implementation, testing and review.
-8. **Artifacts**: which workflow outputs to collect, such as plans, review logs and reports.
+8. **Artifacts**: which workflow outputs to collect, such as plans, review logs and reports, and the run's changes as one patch against the base commit. That patch is all the verifier receives.
 
 ### Role
 
