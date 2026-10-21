@@ -6,6 +6,11 @@ tmp/
 .env.*
 !.env.example
 
+# Python
+__pycache__/
+*.pyc
+.venv/
+
 # Claude Code local settings
 .claude/settings.local.json
 

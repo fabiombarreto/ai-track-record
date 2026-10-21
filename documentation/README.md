@@ -35,6 +35,7 @@ Evidence gathered to support specific decisions.
 | Document | What it supports |
 |---|---|
 | [Phase 0 tooling](research/phase-0-tooling.md) | The runner, the observability stack and the local store ([D-030](decisions/decision-log.md#d-030), [D-032](decisions/decision-log.md#d-032), [D-033](decisions/decision-log.md#d-033)) |
+| [Phase 0 results](research/phase-0-results.md) | What each Phase 0 work package found, and the status of every check |
 
 ## Conventions
 
