@@ -1,0 +1,3 @@
+# Normalize line endings to LF. The harness runs in WSL 2 and Linux containers,
+# where CRLF line endings break shell scripts.
+* text=auto eol=lf
