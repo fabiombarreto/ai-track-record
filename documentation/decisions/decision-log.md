@@ -49,7 +49,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 | [D-033](#d-033) | Local store: DuckDB over immutable run folders | Accepted |
 | [D-034](#d-034) | Dashboard hosting and domain | Open |
 | [D-035](#d-035) | Which public reference target | Open |
-| [D-036](#d-036) | Repository license | Open |
+| [D-036](#d-036) | Repository license: MIT | Accepted |
 | [D-037](#d-037) | Where retrieval-augmented generation (RAG) fits | Open |
 | [D-038](#d-038) | Primary purpose: public, verifiable evidence | Accepted |
 | [D-039](#d-039) | End state: a bounded study that becomes a maintained benchmark | Accepted |
@@ -366,12 +366,12 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 
 ### D-036
 
-**Repository license**
+**Repository license: MIT**
 
-- **Status:** Open
-- **Question:** Which license applies to the AI Track Record repository?
-- **Considerations:** It is needed before the repository becomes public. Adoption by other teams is not an objective ([D-039](#d-039)), so the license is about letting readers inspect and reuse the work, not about building a community. Relay's repository, which the dashboard will link to, should also have a license file, since it is a fork of an MIT-licensed project.
-- **Needed by:** making the repository public.
+- **Status:** Accepted, 2026-10-21
+- **Decision:** The AI Track Record repository is licensed under the [MIT License](../../LICENSE), with copyright held by Fabio Martins Barreto.
+- **Why:** It lets readers inspect and reuse the work with attribution, which is what verification needs. Adoption by other teams is not an objective ([D-039](#d-039)), so a simple permissive license is enough. MIT is also the license of the project relay was forked from.
+- **Consequences:** The license covers the code and the documentation in this repository. Relay's own repository, which the dashboard will link to, still needs a license file; that work happens outside this repository.
 
 ### D-037
 
