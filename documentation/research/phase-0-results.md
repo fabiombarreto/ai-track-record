@@ -11,7 +11,7 @@ This report records what Phase 0 actually found, work package by work package, a
 | 0. API credits, workspace and key | Done | 2026-10-21 |
 | 1. WSL 2 environment | Done | 2026-10-21 |
 | 2. Harbor and a first Agent SDK run | Done | 2026-10-21 |
-| 3. Synthetic target and task | In progress | |
+| 3. Synthetic target and task | Done | 2026-10-22 |
 | 4. Relay and vanilla adapters | Not started | |
 | 5. Telemetry and loader | Not started | |
 | 6. Pilot runs and checks | Not started | |
@@ -59,11 +59,28 @@ What the run showed:
 
 Confirmed on 2026-10-22 in the Console: the purchased balance is US$ 0.00 and the promotional balance went from US$ 100.00 to US$ 99.99, so the spend came from the Max plan's included credits. The current credits apply to the Agent SDK, the API, the Batch API, the Playground and Managed Agents, and they **expire on 2026-11-03**, the M0 date. With no purchased balance, requests stop when the credits run out, which works as a hard spending stop.
 
-## WP3: synthetic target (in progress)
+## WP3: synthetic target and task
 
 - **Base project:** an events API with create, read and list endpoints, on Django 6.1, Django Ninja 1.7 and PostgreSQL 16, managed with uv. Its five existing tests pass, even with deprecation warnings treated as errors.
 - **Relay context:** `CLAUDE.md` and the `docs/` knowledge base were generated with relay's context-builder (`*init`). They describe only the base project, never the task's feature. `methodology.md` declares `tdd: false` and pytest.
-- **Still to do:** the task's specification in relay's PRD format, the solution branch with the hidden tests, the task builder, and validation with the `oracle` and `nop` agents.
+- **Specification:** written and approved with `/relay:relay-prd` on 2026-10-22, in an interactive session outside the measured run ([D-014](../decisions/decision-log.md#d-014)). It has seven acceptance criteria, one more than the plan proposed: re-registering after a cancellation. It also has an interface contract for the three registration endpoints and eight behavioral rules. Concurrency stays out of scope.
+- **Base commit:** the base project, the relay context and the approved specification, tagged `task-01-base`.
+- **Solution branch:** a reference implementation that derives each registration's status and waitlist position from creation order and capacity. With it comes `tests/test_registrations.py`, 16 hidden tests named after the criteria they check. Tagged `task-01-solution`.
+- **Oracle validity (TGT-04), checked by hand:** on the solution all 21 tests pass (16 hidden and 5 existing) with deprecation warnings treated as errors. On the base commit all 16 hidden tests fail. One test first passed on the base, because a missing route also returns 404. It now also checks the contract's JSON `detail` body, which a missing route does not return.
+- **Task builder:** [`harness/src/atr/tasks/build.py`](../../harness/src/atr/tasks/build.py) reads a manifest ([`targets/synthetic-events/task-01.toml`](../../targets/synthetic-events/task-01.toml)) and the target's templates, and writes a Harbor task to `~/atr/data/tasks/`:
+  - The agent's environment is the base commit as a repository with one commit, tagged `base`, next to its own PostgreSQL.
+  - The separate verifier has a clean copy of the base commit, its own PostgreSQL, and the tests in `/grading`, outside the agent's code.
+  - The reference solution is the solution branch's changes without the hidden tests.
+- **Grading:** [`grade.py`](../../harness/src/atr/tasks/grade.py) runs in the verifier and takes only the git diff of the agent's `/app` against `base`, so files ignored by git never cross. It applies that diff to the clean copy, runs the pristine existing tests and the hidden tests from `/grading`, where no `conftest.py` written by the agent is loaded, and writes `reward.json` with three metrics: `reward`, `criteria_satisfied` and `existing_tests_pass`.
+- **Validation through Harbor:**
+
+  | Agent | Reward | Criteria satisfied | Existing tests | Hidden tests | Time |
+  |---|---|---|---|---|---|
+  | `oracle` | 1.0 | 1.0 (7 of 7) | 1.0 | 16 of 16 | 64 s |
+  | `nop` | 0.0 | 0.0 | 1.0 | 0 of 16 | ~60 s |
+
+  The `oracle` run's diff, extracted from the agent's `/app`, held the four solution files; the `nop` run's diff was empty.
+- **Agent image:** a build of the agent's environment shows one commit (`Base commit`, tag `base`), no remotes and no hidden test file.
 
 The target lives in its own local repository in the operator's WSL workspace and will be published once reviewed ([D-046](../decisions/decision-log.md#d-046)).
 
@@ -76,4 +93,6 @@ The target lives in its own local repository in the operator's WSL workspace and
 | 5. Privacy | Partly: telemetry disabled in code and configuration | Harbor source |
 | 9. Cost | Not yet | |
 | 10. SDK parity and billing | Partly: billing confirmed from the included credits; parity with the CLI not yet tested | Console billing page; runner options |
-| 3, 4, 6, 7, 8 | Not yet | |
+| 3. Hidden tests | Passed | The agent image has no hidden test file; the separate verifier scores; `oracle` 1.0 and `nop` 0.0 |
+| 4. No history leakage | Passed | `git log --all` in the agent image shows only the base commit, with no remotes |
+| 6, 7, 8 | Not yet | |

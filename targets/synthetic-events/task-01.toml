@@ -1,0 +1,22 @@
+# Task 01 of the synthetic events target (D-046), authored as a pull request:
+# the base ref is the agent's starting point, and the solution ref adds the
+# feature plus the hidden acceptance tests.
+
+[target]
+name = "synthetic-events"
+repository = "~/atr/targets/synthetic-events"
+visibility = "public"
+
+[task]
+id = "task-01"
+title = "Event registration with capacity and a waitlist"
+base_ref = "task-01-base"
+solution_ref = "task-01-solution"
+spec = "PRPs/prds/event-registration.prd.md"
+hidden_tests = ["tests/test_registrations.py"]
+existing_tests = ["tests/test_events.py"]
+criteria = ["AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6", "AC-7"]
+difficulty = "easy"
+category = "backend"
+agent_timeout_sec = 10800
+verifier_timeout_sec = 900
