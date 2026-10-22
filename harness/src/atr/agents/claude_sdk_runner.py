@@ -46,6 +46,7 @@ def build_options(args: argparse.Namespace) -> ClaudeAgentOptions:
         "max_turns": args.max_turns,
         "max_budget_usd": args.max_budget_usd,
         "plugins": [{"type": "local", "path": args.plugin_dir}] if args.plugin_dir else None,
+        "extra_args": {"session-id": args.session_id} if args.session_id else None,
     }
     requested = {key: value for key, value in requested.items() if value is not None}
     supported = {field.name for field in dataclasses.fields(ClaudeAgentOptions)}
@@ -147,6 +148,7 @@ def main() -> int:
     parser.add_argument("--plugin-dir")
     parser.add_argument("--cwd")
     parser.add_argument("--collect-worktrees", action="store_true")
+    parser.add_argument("--session-id")
     return asyncio.run(run(parser.parse_args()))
 
 

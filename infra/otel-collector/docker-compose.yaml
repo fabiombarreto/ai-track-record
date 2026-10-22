@@ -1,0 +1,15 @@
+# Start from WSL with: docker compose -f infra/otel-collector/docker-compose.yaml up -d
+# Task containers reach it at host.docker.internal:4318.
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    container_name: atr-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    # The telemetry folder belongs to the operator's root user in WSL.
+    user: "0:0"
+    ports:
+      - "127.0.0.1:4318:4318"
+    volumes:
+      - ./config.yaml:/etc/otelcol/config.yaml:ro
+      - ${ATR_DATA_DIR:-${HOME}/atr/data}/telemetry:/data
+    restart: unless-stopped

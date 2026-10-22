@@ -1,0 +1,35 @@
+# OpenTelemetry Collector for benchmark runs (D-032).
+# Receives Claude Code's metrics and events over OTLP/HTTP and writes them as
+# JSON lines, one file per signal, which the loader reads into DuckDB.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  file/metrics:
+    path: /data/metrics.jsonl
+    flush_interval: 1s
+    rotation:
+      max_megabytes: 100
+      max_backups: 100
+  file/logs:
+    path: /data/logs.jsonl
+    flush_interval: 1s
+    rotation:
+      max_megabytes: 100
+      max_backups: 100
+
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [file/metrics]
+    logs:
+      receivers: [otlp]
+      exporters: [file/logs]

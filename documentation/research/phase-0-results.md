@@ -13,7 +13,7 @@ This report records what Phase 0 actually found, work package by work package, a
 | 2. Harbor and a first Agent SDK run | Done | 2026-10-21 |
 | 3. Synthetic target and task | Done | 2026-10-22 |
 | 4. Relay and vanilla adapters | Done | 2026-10-22 |
-| 5. Telemetry and loader | Not started | |
+| 5. Telemetry and loader | Done | 2026-10-22 |
 | 6. Pilot runs and checks | Not started | |
 | 7. M0 review | Not started | |
 
@@ -141,15 +141,43 @@ What the runs showed:
   - disable `WebSearch` and `WebFetch` for Target A runs and restrict the container's network;
   - accept them and record the queries.
 
+## WP5: telemetry and loader
+
+- **Collector:** [`infra/otel-collector/`](../../infra/otel-collector/) runs the contrib image, pinned at 0.162.0, the latest stable release. It listens for OTLP over HTTP on port 4318, published on the WSL host's loopback only, and writes `logs.jsonl` and `metrics.jsonl` to `~/atr/data/telemetry/`. Task containers reach it at `host.docker.internal:4318`.
+- **Per-run settings:** with the `otel_endpoint` option set, the agent turns Claude Code's telemetry on:
+  - OTLP over `http/protobuf`, with one-second export intervals;
+  - ten-second flush and shutdown timeouts, so the last batch is sent when the run ends;
+  - `OTEL_LOG_TOOL_DETAILS=1`, so plugin agents keep their names instead of `custom`;
+  - resource attributes for the job, the trial, the configuration and the model.
+
+  Prompt and response text stay out of the telemetry. Each run also gets a fixed session ID derived from its trial. The variable names were checked against the Claude Code binary bundled with the SDK.
+- **Loader:** [`harness/src/atr/store/load.py`](../../harness/src/atr/store/load.py) rebuilds `~/atr/data/atr.duckdb` on every run.
+  - Tables: `trials`, `model_usage`, `events` and `metric_points`. They come from Harbor's results, the runner's result and the Collector's files.
+  - Views: `reconciliation` and `usage_by_agent`. Telemetry joins to its trial on the resource attributes.
+  - The `reconciliation` view compares the `api_request` events, the token and cost metrics, and the SDK's `modelUsage`, per trial, model and token type.
+- **First reconciled run:** vanilla on Haiku on task 01 again, with telemetry on. Reward 1.0, US$ 0.022.
+  - The three sources agree exactly over 14 requests: 28 input, 16,245 output, 608,974 cache-read and 60,807 cache-write tokens, and the same cost to the last digit.
+  - The run's events: 14 `api_request`, 16 `tool_decision`, 16 `tool_result`, 11 `assistant_response`, 2 `plugin_loaded` and one `user_prompt`.
+
+### Clock jumps
+
+The Windows clock is about two minutes behind; an internet time source agrees with WSL. During the run, the WSL clock jumped back to match Windows for a moment. The first events of the run carry timestamps two minutes before the run started, although their sequence numbers come after the session's first event. Two consequences:
+
+- The loader orders events by `event.sequence`.
+- Durations come from the SDK's `duration_ms` and the events' own `duration_ms`, never from wall-clock differences.
+
+Syncing the Windows clock reduces the jumps. It is a system setting, so the operator does it.
+
 ## Checks so far
 
 | Check | Status | Evidence |
 |---|---|---|
-| 2. Forced models | Partly: `modelUsage` passes, including 14 sub-agents pinned to Sonnet; the `api_request` events wait for WP5 | `modelUsage` keys of the relay run |
+| 2. Forced models | Partly: `modelUsage` passes, including 14 sub-agents pinned to Sonnet; the `api_request` events show only the model under test in the vanilla run, but no relay run has had telemetry yet | `modelUsage` keys of the relay run; WP5 `api_request` events |
+| 6. Telemetry | Partly: the `api_request` events and the metrics match `modelUsage` by model and token type; per-agent totals and relay's agent names wait for a relay run with telemetry (WP6) | `reconciliation` view |
 | 5. Privacy | Partly: Harbor's telemetry is off, but the agents reached PyPI and, in relay's run, external websites | Harbor source; WP4 tool calls |
 | 9. Cost | Not yet | |
 | 10. SDK parity and billing | Partly: billing confirmed from the included credits; the SDK loads relay, the project settings and Claude Code's system prompt, but no CLI run has been compared | Console billing page; init message; runner options |
 | 1. Plugin and version | Passed | Init message lists relay 0.47.0 with no `plugin_errors`, on Claude Code 2.1.306 |
 | 3. Hidden tests | Passed | The agent image has no hidden test file; the separate verifier scores; `oracle` 1.0 and `nop` 0.0 |
 | 4. No history leakage | Passed | `git log --all` in the agent image shows only the base commit, with no remotes |
-| 6, 7, 8 | Not yet | |
+| 7, 8 | Not yet | |

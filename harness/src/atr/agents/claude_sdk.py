@@ -8,8 +8,10 @@ and runs claude_sdk_runner.py there.
 
 import json
 import shlex
+import uuid
 from pathlib import Path
 from typing import override
+from urllib.parse import quote
 
 from pydantic import Field
 
@@ -51,6 +53,14 @@ class ClaudeAgentSdkOptions(InstalledAgentOptions):
     collect_worktrees: bool = Field(
         default=False,
         description="After the run, apply changes left in .worktrees/* to the main tree.",
+    )
+    otel_endpoint: str | None = Field(
+        default=None,
+        description="OTLP/HTTP endpoint for Claude Code's telemetry; off when unset.",
+    )
+    config_label: str | None = Field(
+        default=None,
+        description="Name of the benchmark configuration, recorded on the telemetry.",
     )
 
 
@@ -119,6 +129,42 @@ class ClaudeAgentSdk(BaseInstalledAgent):
             raise ValueError("No model specified; pass one with -m")
         return self.model_name.removeprefix("anthropic/")
 
+    def _trial_and_job(self) -> tuple[str, str]:
+        # Harbor writes agent logs to <jobs dir>/<job>/<trial>/agent.
+        trial_dir = self.logs_dir.resolve().parent
+        return trial_dir.name, trial_dir.parent.name
+
+    def _session_id(self) -> str:
+        """A session ID derived from the trial, so telemetry joins to its result."""
+        trial, job = self._trial_and_job()
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"atr:{job}/{trial}"))
+
+    def _telemetry_env(self, endpoint: str) -> dict[str, str]:
+        trial, job = self._trial_and_job()
+        attributes = {
+            "atr.job": job,
+            "atr.trial": trial,
+            "atr.config": self.options.config_label or "unlabelled",
+            "atr.model": self._model(),
+        }
+        return {
+            "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+            "OTEL_METRICS_EXPORTER": "otlp",
+            "OTEL_LOGS_EXPORTER": "otlp",
+            "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": endpoint,
+            "OTEL_METRIC_EXPORT_INTERVAL": "1000",
+            "OTEL_LOGS_EXPORT_INTERVAL": "1000",
+            # Gives the exporters time to send the last batch when the run ends.
+            "CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS": "10000",
+            "CLAUDE_CODE_OTEL_SHUTDOWN_TIMEOUT_MS": "10000",
+            # Shows relay's agent and plugin names instead of "custom".
+            "OTEL_LOG_TOOL_DETAILS": "1",
+            "OTEL_RESOURCE_ATTRIBUTES": ",".join(
+                f"{key}={quote(value, safe='')}" for key, value in attributes.items()
+            ),
+        }
+
     @with_prompt_template
     async def run(
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
@@ -147,6 +193,8 @@ class ClaudeAgentSdk(BaseInstalledAgent):
             # Keeps the session transcripts in the synced logs folder.
             "CLAUDE_CONFIG_DIR": f"{LOGS_DIR}/claude-config",
         }
+        if self.options.otel_endpoint:
+            env |= self._telemetry_env(self.options.otel_endpoint)
 
         args = [
             f"{VENV_DIR}/bin/python",
@@ -168,6 +216,7 @@ class ClaudeAgentSdk(BaseInstalledAgent):
             args += ["--cwd", self.options.cwd]
         if self.options.collect_worktrees:
             args += ["--collect-worktrees"]
+        args += ["--session-id", self._session_id()]
 
         command = (
             " ".join(shlex.quote(arg) for arg in args)
