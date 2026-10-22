@@ -41,6 +41,17 @@ class ClaudeAgentSdkOptions(InstalledAgentOptions):
     cwd: str | None = Field(
         default=None, description="Working directory for the agent."
     )
+    prompt: str | None = Field(
+        default=None,
+        description="Prompt that replaces the task instruction, such as a workflow command.",
+    )
+    install_node: bool = Field(
+        default=False, description="Install Node.js, for workflows whose scripts need it."
+    )
+    collect_worktrees: bool = Field(
+        default=False,
+        description="After the run, apply changes left in .worktrees/* to the main tree.",
+    )
 
 
 class ClaudeAgentSdk(BaseInstalledAgent):
@@ -67,6 +78,16 @@ class ClaudeAgentSdk(BaseInstalledAgent):
     @override
     async def install(self, environment: BaseEnvironment) -> None:
         await self.ensure_system_dependencies(environment, ("curl", "coreutils", "git"))
+        if self.options.install_node:
+            # Harbor's package list has no Node.js, and task images are Debian based.
+            await self.exec_as_root(
+                environment,
+                command=(
+                    "command -v node >/dev/null 2>&1 || "
+                    "(apt-get update && apt-get install -y --no-install-recommends nodejs "
+                    "&& rm -rf /var/lib/apt/lists/*)"
+                ),
+            )
         installed = await environment.exec(
             command=f"{VENV_DIR}/bin/python -c 'import claude_agent_sdk' 2>/dev/null"
         )
@@ -77,6 +98,8 @@ class ClaudeAgentSdk(BaseInstalledAgent):
                 environment,
                 command=(
                     "set -euo pipefail; "
+                    # Task images may forbid Python downloads for their own project.
+                    "export UV_PYTHON_DOWNLOADS=automatic; "
                     f"curl -LsSf https://astral.sh/uv/{UV_VERSION}/install.sh "
                     "| env UV_UNMANAGED_INSTALL=/usr/local/bin sh && "
                     f"uv python install {python_version} && "
@@ -101,7 +124,7 @@ class ClaudeAgentSdk(BaseInstalledAgent):
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
     ) -> None:
         instruction_file = self.logs_dir / "instruction.txt"
-        instruction_file.write_text(instruction)
+        instruction_file.write_text(self.options.prompt or instruction)
         await self._upload_agent_owned_file(
             environment, instruction_file, INSTRUCTION_PATH
         )
@@ -143,6 +166,8 @@ class ClaudeAgentSdk(BaseInstalledAgent):
             args += ["--plugin-dir", self.options.plugin_dir]
         if self.options.cwd:
             args += ["--cwd", self.options.cwd]
+        if self.options.collect_worktrees:
+            args += ["--collect-worktrees"]
 
         command = (
             " ".join(shlex.quote(arg) for arg in args)

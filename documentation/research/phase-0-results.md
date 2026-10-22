@@ -12,7 +12,7 @@ This report records what Phase 0 actually found, work package by work package, a
 | 1. WSL 2 environment | Done | 2026-10-21 |
 | 2. Harbor and a first Agent SDK run | Done | 2026-10-21 |
 | 3. Synthetic target and task | Done | 2026-10-22 |
-| 4. Relay and vanilla adapters | Not started | |
+| 4. Relay and vanilla adapters | Done | 2026-10-22 |
 | 5. Telemetry and loader | Not started | |
 | 6. Pilot runs and checks | Not started | |
 | 7. M0 review | Not started | |
@@ -84,15 +84,72 @@ Confirmed on 2026-10-22 in the Console: the purchased balance is US$ 0.00 and th
 
 The target lives in its own local repository in the operator's WSL workspace and will be published once reviewed ([D-046](../decisions/decision-log.md#d-046)).
 
+## WP4: relay and vanilla adapters
+
+### Adapters
+
+Both configurations use the same Agent SDK agent. The relay configuration adds four options:
+
+- **`prompt`** replaces the task instruction with the workflow's entry command, `/relay:relay-execute PRPs/prds/event-registration.prd.md`.
+- **`plugin_dir`** loads relay from a read-only mount of the pinned checkout, commit `e1844b6` (version 0.47.0).
+- **`install_node`** installs Node.js 20 in the agent's container. Relay's helper scripts need it. It is a dependency of the workflow, not of the target.
+- **`collect_worktrees`** copies relay's changes back for grading. Relay leaves its changes uncommitted in `.worktrees/<feature>`, which git ignores, so after the run the runner applies each worktree's diff against `base` to `/app`. The outcome is recorded in `worktrees.json`.
+
+Two fixes apply to both configurations:
+
+- **Workspace trust.** The runner marks the workspace as trusted, as an operator does once in the CLI. Without it, Claude Code ignored the project's 53 allow rules.
+- **Python downloads.** The SDK install allows Python downloads, because the task image forbids them for its own project.
+
+A smoke test cost US$ 0.005. It showed that relay loads with no `plugin_errors`, that Node.js runs, and that a file written in a worktree reaches the grader's diff.
+
+### Runs on task 01 with Claude Haiku 5.5
+
+Each run had a soft cap of US$ 5. The two ran in parallel.
+
+| Measure | Relay | Vanilla |
+|---|---|---|
+| Reward | 1.0 | 1.0 |
+| Criteria satisfied | 7 of 7 | 7 of 7 |
+| Existing tests | Pass | Pass |
+| Cost | US$ 1.195 | US$ 0.029 |
+| Agent time | 18.5 min | 1.8 min |
+| Whole trial | 20.2 min | 2.9 min |
+| Turns in the main thread | 74 | 20 |
+| Sub-agents | 14 | 0 |
+| Output tokens (thinking) | 259,703 (148,594) | 22,855 (8,673) |
+| Cache reads / writes | 15.7 M / 922 k | 1.0 M / 60 k |
+| Uncached input tokens | 196,804 | 38 |
+| Files changed | 33, of which 12 are code, tests and docs | 10 |
+
+Costs are the SDK's client-side estimate at list prices.
+
+What the runs showed:
+
+- **Relay runs unattended.** `/relay:relay-execute` ran the whole pipeline with no prompt: plan, plan review, test writing and review, implementation, code review, test run, post-green review and docs sync. It finished with the PRD row at `complete` and its changes uncommitted, as designed. Along the way it reopened an approved plan to fix a wrong route prefix in a validation command, then had it reviewed again. Its own summary flags this as a deviation from the strict flow.
+- **Worktree collection works.** Relay wrote its PRD row and the completed plan in `/app`, and the code, tests, docs and most reports in the worktree. The worktree's 55 kB diff applied to `/app` with no conflict.
+- **Forced model, with sub-agents.** All 14 sub-agent definitions that relay dispatched declare `model: sonnet`. Even so, `modelUsage` lists only `claude-haiku-5-5`, so the forced model reaches sub-agents too.
+- **Project rules hold under `bypassPermissions`.** The project's deny rules blocked two `rm -rf` cleanups of relay's scratch folders in `/tmp`. The run carried on and reported the leftovers.
+- **Task 01 does not separate the two configurations.** Both scored 1.0. Relay cost 41 times as much and took 10 times as long. The synthetic task tests the pipeline, not the workflows. The MVP's tasks must be hard enough for quality to differ, and the cost of relay's process must be weighed against what it adds: 24 tests of its own, docs updates, and review records.
+
+### Findings for later work packages
+
+- **Network use by the agent (check 5).** Each configuration reached the internet beyond the model API:
+  - Vanilla added the `email-validator` package, downloaded from PyPI. The verifier then installed it, so the verifier also needs network access.
+  - Relay's research sub-agent ran three web searches and six page fetches about the feature's design, such as waitlist promotion and 409 versus 422. The fetches went from the container to external sites.
+
+  For the public synthetic target this is harmless. For Target A, search queries and fetched URLs could reveal what the product is building. Before Target A runs, WP6 or M0 must decide one of two options:
+  - disable `WebSearch` and `WebFetch` for Target A runs and restrict the container's network;
+  - accept them and record the queries.
+
 ## Checks so far
 
 | Check | Status | Evidence |
 |---|---|---|
-| 1. Plugin and version | Partly: version confirmed, plugin loading not yet tested | Init message shows Claude Code 2.1.306 |
-| 2. Forced models | Partly: one model only, no sub-agent yet | `modelUsage` keys |
-| 5. Privacy | Partly: telemetry disabled in code and configuration | Harbor source |
+| 2. Forced models | Partly: `modelUsage` passes, including 14 sub-agents pinned to Sonnet; the `api_request` events wait for WP5 | `modelUsage` keys of the relay run |
+| 5. Privacy | Partly: Harbor's telemetry is off, but the agents reached PyPI and, in relay's run, external websites | Harbor source; WP4 tool calls |
 | 9. Cost | Not yet | |
-| 10. SDK parity and billing | Partly: billing confirmed from the included credits; parity with the CLI not yet tested | Console billing page; runner options |
+| 10. SDK parity and billing | Partly: billing confirmed from the included credits; the SDK loads relay, the project settings and Claude Code's system prompt, but no CLI run has been compared | Console billing page; init message; runner options |
+| 1. Plugin and version | Passed | Init message lists relay 0.47.0 with no `plugin_errors`, on Claude Code 2.1.306 |
 | 3. Hidden tests | Passed | The agent image has no hidden test file; the separate verifier scores; `oracle` 1.0 and `nop` 0.0 |
 | 4. No history leakage | Passed | `git log --all` in the agent image shows only the base commit, with no remotes |
 | 6, 7, 8 | Not yet | |
