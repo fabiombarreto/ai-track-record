@@ -168,7 +168,7 @@ These are believed to be true but are not yet verified. Phase 0 tests the first 
 | AS-4 | A medium-sized run costs roughly US$ 2–25, depending on the model | The MVP ceiling is revisited at M0 ([D-028](../decisions/decision-log.md#d-028)); the frozen scope changes only through a new decision |
 | AS-5 | Target A's tasks can be specified with an interface contract precise enough for hidden tests | Tasks are redesigned or replaced |
 | AS-6 | Three repetitions are enough to separate configurations that differ meaningfully | More repetitions, or fewer configurations |
-| AS-7 | Model providers can receive Target A's content by milestone M0 ([D-029](../decisions/decision-log.md#d-029)) | The MVP waits, or runs on a public target instead |
+| AS-7 | Model providers can receive Target A's content by milestone M0 ([D-029](../decisions/decision-log.md#d-029)); confirmed on 2026-10-22 for Anthropic models | The MVP waits, or runs on a public target instead |
 | AS-8 | The Agent SDK reproduces the CLI's behavior for relay ([D-049](../decisions/decision-log.md#d-049)) | Runs go back to the CLI, paid with purchased credits |
 
 ## 8. Questions AI Track Record answers

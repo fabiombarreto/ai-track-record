@@ -42,7 +42,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 | [D-026](#d-026) | Allowed model providers per target | Accepted |
 | [D-027](#d-027) | Benchmark runs use API access, not consumer subscriptions | Accepted |
 | [D-028](#d-028) | MVP budget ceiling: US$ 800 | Accepted |
-| [D-029](#d-029) | Allowed providers for Target A | Open |
+| [D-029](#d-029) | Allowed providers for Target A: Anthropic only | Accepted |
 | [D-030](#d-030) | Runner: adopt Harbor | Accepted |
 | [D-031](#d-031) | Route to non-Anthropic and open-weight models | Open |
 | [D-032](#d-032) | Observability: native OpenTelemetry into a local store, MLflow as optional viewer | Accepted |
@@ -297,13 +297,12 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 
 ### D-029
 
-**Allowed providers for Target A**
+**Allowed providers for Target A: Anthropic only**
 
-- **Status:** Open
-- **Question:** Which model providers may receive Target A's code and specifications?
-- **Considerations:** Depends on the target owner's data-protection requirements, which were not yet confirmed on 2026-10-20. The candidates are providers whose paid API terms exclude training on submitted content. The MVP uses only Anthropic models, so allowing the Anthropic API is enough to unblock it. Phase 0 uses a public or synthetic task and does not depend on this decision.
-- **If still open at M0:** the owner chooses between waiting, which moves the MVP date ([D-043](#d-043)), and running the MVP on a public target, which changes the frozen scope ([D-024](#d-024)) and brings [D-012](#d-012) forward.
-- **Needed by:** M0 (2026-11-03), before any Target A content is sent to a model provider, including during task preparation.
+- **Status:** Accepted, 2026-10-22
+- **Decision:** Target A's code and specifications may be sent only to Anthropic models, through the API. Sonnet and Haiku are the preferred models.
+- **Why:** The MVP uses only Anthropic models, and the API's commercial terms exclude training on submitted content ([D-026](#d-026)).
+- **Consequences:** Target A's tasks can be prepared and run from M1 on. The preference does not change the frozen MVP scope: its Opus configuration stays ([D-024](#d-024)). Models from other providers ([D-031](#d-031)) can only be evaluated on public targets unless this decision is revisited.
 
 ### D-030
 

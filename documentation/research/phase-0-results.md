@@ -1,6 +1,6 @@
 # Phase 0 results
 
-> **Status:** In progress · **Last updated:** 2026-10-21 · **Owner:** Fabio Martins Barreto
+> **Status:** In progress · **Last updated:** 2026-10-22 · **Owner:** Fabio Martins Barreto
 
 This report records what Phase 0 actually found, work package by work package, against the [Phase 0 plan](../plans/phase-0.md) and its [checks](phase-0-tooling.md#7-phase-0-checks). It is completed at milestone M0.
 
@@ -10,8 +10,8 @@ This report records what Phase 0 actually found, work package by work package, a
 |---|---|---|
 | 0. API credits, workspace and key | Done | 2026-10-21 |
 | 1. WSL 2 environment | Done | 2026-10-21 |
-| 2. Harbor and a first Agent SDK run | Done, pending the credit check below | 2026-10-21 |
-| 3. Synthetic target and task | Not started | |
+| 2. Harbor and a first Agent SDK run | Done | 2026-10-21 |
+| 3. Synthetic target and task | In progress | |
 | 4. Relay and vanilla adapters | Not started | |
 | 5. Telemetry and loader | Not started | |
 | 6. Pilot runs and checks | Not started | |
@@ -55,9 +55,17 @@ What the run showed:
 - **Records:** Harbor stored tokens, cost and per-model usage from the runner's result. Every SDK message is in `messages.jsonl`, and the session transcript is in the synced logs folder.
 - **Built-in plugins:** the SDK loads two of them by default, `cc-plugin-agents-md` and `cc-plugin-plugin-authoring`. They are present in every run, so comparisons stay fair, but check 10 has to confirm that a CLI run loads the same ones.
 
-### Still to confirm
+### Billing
 
-- **Billing source:** that the spend was drawn from the included credits. The operator checks this in the Console.
+Confirmed on 2026-10-22 in the Console: the purchased balance is US$ 0.00 and the promotional balance went from US$ 100.00 to US$ 99.99, so the spend came from the Max plan's included credits. The current credits apply to the Agent SDK, the API, the Batch API, the Playground and Managed Agents, and they **expire on 2026-11-03**, the M0 date. With no purchased balance, requests stop when the credits run out, which works as a hard spending stop.
+
+## WP3: synthetic target (in progress)
+
+- **Base project:** an events API with create, read and list endpoints, on Django 6.1, Django Ninja 1.7 and PostgreSQL 16, managed with uv. Its five existing tests pass, even with deprecation warnings treated as errors.
+- **Relay context:** `CLAUDE.md` and the `docs/` knowledge base were generated with relay's context-builder (`*init`). They describe only the base project, never the task's feature. `methodology.md` declares `tdd: false` and pytest.
+- **Still to do:** the task's specification in relay's PRD format, the solution branch with the hidden tests, the task builder, and validation with the `oracle` and `nop` agents.
+
+The target lives in its own local repository in the operator's WSL workspace and will be published once reviewed ([D-046](../decisions/decision-log.md#d-046)).
 
 ## Checks so far
 
@@ -67,5 +75,5 @@ What the run showed:
 | 2. Forced models | Partly: one model only, no sub-agent yet | `modelUsage` keys |
 | 5. Privacy | Partly: telemetry disabled in code and configuration | Harbor source |
 | 9. Cost | Not yet | |
-| 10. SDK parity and billing | Partly: system prompt and settings set explicitly; billing source pending | Runner options |
+| 10. SDK parity and billing | Partly: billing confirmed from the included credits; parity with the CLI not yet tested | Console billing page; runner options |
 | 3, 4, 6, 7, 8 | Not yet | |
