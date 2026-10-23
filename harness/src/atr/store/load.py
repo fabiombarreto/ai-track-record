@@ -25,8 +25,8 @@ import duckdb
 SCHEMA = """
 CREATE TABLE trials (
     job TEXT, trial TEXT, task TEXT, config TEXT, model TEXT, agent_version TEXT,
-    session_id TEXT, outcome TEXT, num_turns INTEGER,
-    duration_ms BIGINT, duration_api_ms BIGINT, cost_usd DOUBLE,
+    session_id TEXT, outcome TEXT, native_outcome TEXT, num_turns INTEGER,
+    wall_ms BIGINT, duration_ms BIGINT, duration_api_ms BIGINT, cost_usd DOUBLE,
     reward DOUBLE, criteria_satisfied DOUBLE, existing_tests_pass DOUBLE,
     exception TEXT, changes_patch_bytes BIGINT,
     started_at TIMESTAMP, finished_at TIMESTAMP,
@@ -127,6 +127,26 @@ def otlp_attributes(attributes: list[dict]) -> dict:
     return {item["key"]: otlp_value(item["value"]) for item in attributes or []}
 
 
+def normalize_outcome(exception_type: str | None, subtype: str | None) -> str | None:
+    """Map Harbor's exception and the SDK's result subtype to D-019's outcomes.
+
+    Agents without an SDK result, such as `oracle` and `nop`, get None. A
+    relay HALT ends as a successful SDK result whose text names the HALT
+    code; telling it apart from `completed` waits for a workflow adapter.
+    """
+    if exception_type == "AgentTimeoutError":
+        return "timed_out"
+    if exception_type:
+        return "error"
+    if subtype is None:
+        return None
+    if subtype == "success":
+        return "completed"
+    if subtype in ("error_max_budget_usd", "error_max_turns"):
+        return "budget_exceeded"
+    return "error"
+
+
 def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path) -> int:
     count = 0
     for result_file in sorted(jobs_dir.glob("*/*/result.json")):
@@ -139,20 +159,27 @@ def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path) -> int:
         kwargs = result["config"]["agent"].get("kwargs") or {}
         patch = trial_dir / "verifier" / "changes.patch"
         exception = result.get("exception_info")
+        exception_type = exception.get("exception_type") if exception else None
         job, trial = trial_dir.parent.name, trial_dir.name
         con.execute(
-            "INSERT INTO trials VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO trials VALUES ({', '.join('?' * 21)})",
             [
                 job, trial, result.get("task_name"),
                 kwargs.get("config_label"),
                 result["config"]["agent"].get("model_name"),
                 (result.get("agent_info") or {}).get("version"),
-                agent.get("session_id"), agent.get("subtype"), agent.get("num_turns"),
+                agent.get("session_id"),
+                normalize_outcome(exception_type, agent.get("subtype")),
+                agent.get("subtype"),
+                # Results written before the runner's atr_ fields count only
+                # the last segment's turns.
+                agent.get("atr_num_turns", agent.get("num_turns")),
+                agent.get("atr_wall_ms"),
                 agent.get("duration_ms"), agent.get("duration_api_ms"),
                 agent.get("total_cost_usd"),
                 rewards.get("reward"), rewards.get("criteria_satisfied"),
                 rewards.get("existing_tests_pass"),
-                exception.get("exception_type") if exception else None,
+                exception_type,
                 patch.stat().st_size if patch.exists() else None,
                 result.get("started_at"), result.get("finished_at"),
             ],

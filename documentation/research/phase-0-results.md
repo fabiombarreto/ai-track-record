@@ -1,6 +1,6 @@
 # Phase 0 results
 
-> **Status:** In progress · **Last updated:** 2026-10-22 · **Owner:** Fabio Martins Barreto
+> **Status:** In progress · **Last updated:** 2026-10-23 · **Owner:** Fabio Martins Barreto
 
 This report records what Phase 0 actually found, work package by work package, against the [Phase 0 plan](../plans/phase-0.md) and its [checks](phase-0-tooling.md#7-phase-0-checks). It is completed at milestone M0.
 
@@ -14,7 +14,7 @@ This report records what Phase 0 actually found, work package by work package, a
 | 3. Synthetic target and task | Done | 2026-10-22 |
 | 4. Relay and vanilla adapters | Done | 2026-10-22 |
 | 5. Telemetry and loader | Done | 2026-10-22 |
-| 6. Pilot runs and checks | Not started | |
+| 6. Pilot runs and checks | Done | 2026-10-23 |
 | 7. M0 review | Not started | |
 
 ## WP0 and WP1: environment
@@ -168,16 +168,185 @@ The Windows clock is about two minutes behind; an internet time source agrees wi
 
 Syncing the Windows clock reduces the jumps. It is a system setting, so the operator does it.
 
-## Checks so far
+The operator synced the Windows clock to NTP.br on 2026-10-22: the offset is now −0.004 s, down from +116 s.
+
+## WP6: pilot runs and checks
+
+### Pilot runs on task 01
+
+The three pilots ran in parallel on 2026-10-22, each with telemetry on and a soft cap of US$ 5.
+
+| Measure | Relay on Haiku | Relay on Sonnet | Vanilla on Sonnet |
+|---|---|---|---|
+| Reward | 1.0 | 1.0 | 1.0 |
+| Criteria satisfied | 7 of 7 | 7 of 7 | 7 of 7 |
+| Existing tests | Pass | Pass | Pass |
+| Outcome | `completed` | `completed` | `completed` |
+| Cost | US$ 1.041 | US$ 2.787 | US$ 0.178 |
+| Agent time | 32.9 min | 9.2 min | 1.0 min |
+| API requests | 144 | 88 | 6 |
+| Turns in the main thread | 64 | 46, over 9 result messages | 7 |
+| Sub-agents | 14 | 12 | 0 |
+| Output tokens | 208,092 | 70,258 | 6,468 |
+| Cache reads / writes | 10.4 M / 1.31 M | 5.1 M / 604 k | 156 k / 39 k |
+| Uncached input tokens | 248,313 | 42,419 | 12 |
+| Files changed | 33 | 19 | 6 |
+
+Costs are the SDK's client-side estimate at list prices, and they match the telemetry exactly. Agent time is Harbor's agent phase.
+
+What the pilots showed:
+
+- **Task 01 still does not separate the configurations.** All three scored 1.0, as did the WP4 runs. Relay on Sonnet cost 16 times as much as vanilla on Sonnet.
+- **Relay's process depends on the model.** On Haiku, relay ran the full pipeline: a worktree, docs sync, and every downstream command adopted inline. On Sonnet it shortened the protocol and reported each deviation in its summary:
+  - it worked in `/app` instead of a worktree;
+  - it skipped the docs sync;
+  - it dispatched the agents directly instead of adopting `/relay-implement` and `/relay-test`.
+
+  The grade does not see this. Protocol adherence needs a measure of its own, for example from relay's `orchestrator-run.json`.
+- **Variance between repetitions is large.** Relay on Haiku took 18.5 min and US$ 1.195 in WP4 and 32.9 min and US$ 1.041 here, on the same task, model and pin. Comparisons need repetitions ([D-020](../decisions/decision-log.md#d-020)).
+- **A session can end in several result messages.** Relay on Sonnet ran sub-agents in the background, and the SDK emitted one result message each time the session resumed. Each carries the cumulative cost and usage, but `duration_ms` and `num_turns` cover only its own segment. The pilot's last result reported 21 s and 5 turns for a 9-minute run. The runner now also records its own wall time (`atr_wall_ms`), the turns summed over all result messages (`atr_num_turns`) and their count, and the loader prefers those.
+
+### Background model (check 2)
+
+In the relay run on Sonnet, the two calls that summarise WebFetch pages (`query_source` `web_fetch_apply`) went to Claude Haiku: 2 requests, US$ 0.0022. They use the `haiku` alias, which `CLAUDE_CODE_SUBAGENT_MODEL` does not cover. Every sub-agent request was on Sonnet, as were the main thread's.
+
+The agent now also sets `ANTHROPIC_DEFAULT_HAIKU_MODEL` to the model under test. In a check run on Sonnet that made one WebFetch call, the `web_fetch_apply` request went to Sonnet, and `modelUsage` listed only Sonnet. Runs on Haiku were never affected.
+
+### Telemetry per agent (check 6)
+
+- Every trial with telemetry that ended with a result reconciles exactly across the `api_request` events, the metrics and `modelUsage`: 12 trials, from 4 to 144 requests.
+- The `usage_by_agent` view adds up to each run's total: 17 rows to US$ 1.0415 for relay on Haiku, and 15 rows to US$ 2.7875 for relay on Sonnet.
+- Relay's agents appear by name, for example `relay:plan-writer` and `relay:code-reviewer`, with `query_source` `agent:custom`. Claude Code's own agents appear as, for example, `general-purpose` with `agent:builtin:general-purpose`. Web tool calls are counted under the main thread, with `query_source` `web_search_tool` and `web_fetch_apply`.
+
+Relay's biggest costs on both models were the main thread (US$ 0.77 each), then plan-writer, code-reviewer and plan-reviewer.
+
+### Killed run (check 7)
+
+A relay run on Haiku with the agent timeout cut to 486 s (`--agent-timeout-multiplier 0.045`):
+
+- Harbor stopped the agent at 486 s with `AgentTimeoutError`, then ran the verifier anyway. The trial scored 0.0 with the existing tests passing.
+- There was no SDK result. The telemetry kept 63 `api_request` events, the last one 6 s before the kill. Their cost, US$ 0.605, matches the cost metric. They include the requests of three relay sub-agents.
+- The loader now maps outcomes to [D-019](../decisions/decision-log.md#d-019)'s vocabulary and keeps the native one: this trial is `timed_out`, with `AgentTimeoutError`. A run on the SDK's budget or turn limit is `budget_exceeded`, and agents with no SDK result, such as `oracle`, have no outcome.
+- **Gap:** the timeout kills the runner before it collects relay's worktree. The graded diff held relay's plan and reports in `/app`, but not the code being written in `.worktrees/event-registration`. A timed-out relay run is therefore graded without its partial code. Collecting worktrees has to move out of the runner, for example into a step Harbor runs after the agent phase.
+
+### Stability (check 8)
+
+Task 01 takes 1 to 33 minutes, so the hour-long runs used a stand-in workload, agreed with the operator. Three vanilla trials on Haiku ran in parallel in one job (`-k 3 -n 3`). Each was told to run `python3 -c "import time; time.sleep(540)"` seven times, one foreground Bash call at a time, and then to implement the task. A two-minute version was tried first.
+
+| Trial | Agent time | Waits | Reward | Requests | Cost |
+|---|---|---|---|---|---|
+| 1 | 64.8 min | 7 of 7 | 1.0 | 19 | US$ 0.035 |
+| 2 | 64.9 min | 7 of 7 | 1.0 | 24 | US$ 0.041 |
+| 3 | 64.8 min | 7 of 7 | 1.0 | 23 | US$ 0.026 |
+
+The job took 66 minutes. All three trials reconciled exactly, and no container was left behind. The relay timeout and resume tests ran alongside them for their first few minutes.
+
+This shows that containers, Docker Desktop, WSL 2, Harbor, the Collector and the verifier hold up for more than an hour with three runs in parallel. It does not show an hour of steady API load: the agents were idle for most of it. The pilots were the heaviest parallel load, with three runs of up to 33 minutes and 144 requests.
+
+**Resume.** A job of two vanilla trials on Haiku ran one trial at a time. Harbor was killed with SIGKILL 60 s into the second trial, then resumed with `harbor job resume`:
+
+- The finished trial was kept, and the killed one was discarded and run again from scratch. Both scored 1.0.
+- The killed trial's containers kept running, idle. Its agent process had died with Harbor, so it spent nothing more, but the containers had to be removed by hand.
+- The killed trial's 15 requests stay in the telemetry, joined to a trial folder that no longer exists. Their cost counts towards the total even though no result records it.
+
+**Timed-out run graded.** The killed relay run above was graded after its timeout.
+
+**Restart.** The machine restarted on 2026-10-22, after the pilots had finished. The Collector did not come back by itself, despite `restart: unless-stopped`: it exited with code 127 and had to be started by hand. A run started while the Collector is down would lose its telemetry without notice, so the harness needs a check that the Collector is up before a run starts.
+
+### Network (check 5)
+
+**With an open network,** which every run so far used, the agents reached third parties during the run:
+
+| Run | Outside the model API |
+|---|---|
+| Vanilla on Haiku (WP4, WP5 and the WP6 resume test) | PyPI, to add `email-validator` |
+| Vanilla on Sonnet (WP6) | Nothing: it validated emails without a new package |
+| Relay on Haiku (WP6) | PyPI; 2 web searches; 8 fetches from `www.rfc-editor.org`, `http.dev` and `apiguide.dev` |
+| Relay on Sonnet (WP6) | 2 web searches; fetches from `docs.djangoproject.com` and `github.com` |
+| Relay on Haiku, timed out (WP6) | 2 web searches; fetches from `www.rfc-editor.org` and `github.com` |
+
+The searches and fetches come from relay's research sub-agent. Telemetry records the tool calls but not their URLs or queries, even with `OTEL_LOG_TOOL_DETAILS=1`. They are only in the session transcripts.
+
+**With Harbor's network allowlist:** a copy of task 01 set the agent phase to `network_mode = "allowlist"` with only `api.anthropic.com` and `host.docker.internal`. A vanilla run on Haiku then tried four calls:
+
+| Call | Result |
+|---|---|
+| `curl https://pypi.org/simple/` | Blocked (TLS error) |
+| `curl https://us.i.posthog.com/` | Blocked (TLS error) |
+| WebFetch `https://example.com` | Blocked ("Socket is closed") |
+| WebSearch "django ninja" | **Worked**: the search runs on the provider's side, behind the model API |
+
+The run itself worked, the Collector received its telemetry, and the agent install still had the network it needs. So the allowlist works on this machine with WSL's 6.18.54 kernel, which settles the plan's network risk.
+
+Harbor's own PostHog telemetry is off according to its source (WP2), but it runs on the WSL host, outside the allowlist, and no network-level capture of it was made.
+
+**Options for Target A, for the M0 decision:**
+
+1. **Model API only:**
+   - the allowlist with `api.anthropic.com` and the Collector;
+   - `WebSearch` and `WebFetch` disabled, which needs a `disallowed_tools` option in the runner;
+   - every dependency pre-installed in the task image.
+
+   A task whose solution adds a package then fails unless the package is already there.
+2. **Model API plus the package index:** as option 1, with `pypi.org` and `files.pythonhosted.org` (or Target A's own registries) allowed. The verifier then needs the same access, since it installs what the agent added.
+3. **Open network:** web tools kept, with their queries and URLs extracted from the transcripts and recorded. This is the least private option, because search queries can reveal what Target A is building.
+
+### Agent SDK and CLI parity (check 10)
+
+No credits were spent on this check. In a container built from task 01's image, the same prompt went through the Agent SDK with the runner's options and through the CLI bundled with it, `claude -p` 2.1.306. The prompt was `/relay:relay-execute PRPs/prds/event-registration.prd.md`, with relay loaded, a fresh configuration folder and a placeholder key. Both sides pointed `ANTHROPIC_BASE_URL` at a local stand-in that recorded each request body and answered with an error.
+
+- **Init messages:** identical except for a socket path. Both show the same 21 tools, 68 slash commands, 28 agents and 17 skills, the same three plugins (relay 0.47.0 and the two built-ins), `bypassPermissions` and an `ANTHROPIC_API_KEY` key source.
+- **Requests:** four on each side, identical except for:
+  - the session and device IDs;
+  - the billing header's entry point, `sdk-py` against `sdk-cli`;
+  - one default in the Bash tool's description: background commands may run 30 minutes through the SDK and 10 minutes through the CLI.
+
+  The system prompt, the tool definitions, `CLAUDE.md` in the first message and the expanded relay command were all byte for byte the same.
+
+This compares the SDK with the headless CLI. An interactive session on a subscription was not compared, because benchmark runs never use one.
+
+### Cost against the provider (check 9)
+
+The harness's own total covers every trial since 2026-10-21. It uses the SDK's cost where a run ended with a result, and the `api_request` events where it did not: the timed-out run and the killed trial of the resume test. That total is **US$ 6.110** over 22 trials, US$ 4.861 of it in WP6.
+
+On 2026-10-23, after the last run, the operator read the Console's cost page for the dedicated workspace:
+
+| Console | Amount |
+|---|---|
+| Total cost | **US$ 6.12** |
+| Token cost | US$ 5.19 |
+| Web search cost | US$ 0.07 |
+| Code execution and session runtime cost | US$ 0.00 |
+
+The totals differ by US$ 0.01, under 0.2%. The WP0 test call, which no trial records, and rounding to cents account for it. The comparison holds only for the total:
+
+- The cards shown do not break down the remaining US$ 0.86.
+- The daily chart splits the token cost between 2026-10-22 and 2026-10-23 differently from the trials' UTC start times, so a per-day comparison is not meaningful.
+
+The SDK's estimate is therefore a sound cost record for these runs. The Console stays the reference for the D-028 budget.
+
+## Checks
+
+Every check now has a result. Harbor passed checks 1, 3 and 8, and the SDK passed check 10, so neither fallback is triggered. The M0 review records the decisions ([D-030](../decisions/decision-log.md#d-030), [D-049](../decisions/decision-log.md#d-049)).
 
 | Check | Status | Evidence |
 |---|---|---|
-| 2. Forced models | Partly: `modelUsage` passes, including 14 sub-agents pinned to Sonnet; the `api_request` events show only the model under test in the vanilla run, but no relay run has had telemetry yet | `modelUsage` keys of the relay run; WP5 `api_request` events |
-| 6. Telemetry | Partly: the `api_request` events and the metrics match `modelUsage` by model and token type; per-agent totals and relay's agent names wait for a relay run with telemetry (WP6) | `reconciliation` view |
-| 5. Privacy | Partly: Harbor's telemetry is off, but the agents reached PyPI and, in relay's run, external websites | Harbor source; WP4 tool calls |
-| 9. Cost | Not yet | |
-| 10. SDK parity and billing | Partly: billing confirmed from the included credits; the SDK loads relay, the project settings and Claude Code's system prompt, but no CLI run has been compared | Console billing page; init message; runner options |
 | 1. Plugin and version | Passed | Init message lists relay 0.47.0 with no `plugin_errors`, on Claude Code 2.1.306 |
+| 2. Forced models | Passed, with the background model pinned since 2026-10-23. Sub-agents ran on the model under test on Haiku and Sonnet, including relay's agents that declare `model: sonnet`. WebFetch's summary calls used Haiku in a Sonnet run until `ANTHROPIC_DEFAULT_HAIKU_MODEL` was set | `modelUsage` and `api_request` events of the WP6 relay runs and the pin check run |
 | 3. Hidden tests | Passed | The agent image has no hidden test file; the separate verifier scores; `oracle` 1.0 and `nop` 0.0 |
 | 4. No history leakage | Passed | `git log --all` in the agent image shows only the base commit, with no remotes |
-| 7, 8 | Not yet | |
+| 5. Privacy | Passed with the network allowlist; the open network the pilots used fails it. Under the allowlist, PyPI, PostHog and WebFetch were blocked and only the model API and the Collector were reached. WebSearch still works through the model API, so keeping queries private needs the tool disabled. Harbor's own telemetry is off by its source only | Allowlist check run; WP4–WP6 tool calls and transcripts |
+| 6. Telemetry | Passed | `reconciliation` view: exact match for every trial with telemetry and a result; `usage_by_agent` sums to each run's total, with relay's agent names |
+| 7. Killed run | Passed | The timed-out relay run is `timed_out`; 63 `api_request` events kept up to 6 s before the kill |
+| 8. Stability | Passed, on a stand-in workload: three parallel trials of 65 minutes completed and scored 1.0; a job killed mid-trial resumed and reran only that trial; a timed-out run was graded. Gaps: orphaned containers after a kill, and relay's worktree not collected on a timeout | `wp6-stability-3x60`, resume and timeout jobs |
+| 9. Cost | Passed: US$ 6.110 from the harness against US$ 6.12 in the Console | Console cost page on 2026-10-23 |
+| 10. SDK parity and billing | Passed: billing from the included credits; init messages and request bodies identical to the headless CLI's except for IDs, the entry-point label and one Bash timeout default | Console billing page; local request capture |
+
+### Follow-ups
+
+- **Workflow fidelity:** measure relay's protocol adherence, since relay on Sonnet skipped steps that the grade cannot see.
+- **Timeouts:** collect relay's worktrees outside the runner, so a timed-out run is graded with its partial code.
+- **Killed jobs:** remove a killed trial's containers before resuming.
+- **Before a run:** check that the Collector is up.
+- **Target A:** add a `disallowed_tools` option to the runner if M0 picks option 1 or 2 for the network.
+- **Tasks:** the MVP's tasks must be hard enough to separate the configurations.

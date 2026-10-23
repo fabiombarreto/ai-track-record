@@ -184,6 +184,8 @@ class ClaudeAgentSdk(BaseInstalledAgent):
             "ANTHROPIC_MODEL": model,
             "CLAUDE_CODE_SUBAGENT_MODEL": model,
             "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
+            # Background calls, such as WebFetch's summary, use the haiku alias.
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
             "DISABLE_AUTOUPDATER": "1",
             "DISABLE_ERROR_REPORTING": "1",
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",

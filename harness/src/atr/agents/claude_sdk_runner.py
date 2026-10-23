@@ -3,6 +3,12 @@
 Writes every SDK message to messages.jsonl and the final result message to
 result.json, both in --output-dir. Fails instead of dropping any requested
 option that the installed SDK version does not support.
+
+A session that waits on background sub-agents emits one result message per
+resumption. Each one carries cumulative cost and usage, but duration_ms and
+num_turns cover only its own segment, so result.json also records the
+runner's own measures: atr_wall_ms (monotonic clock), atr_num_turns (summed
+over every result message) and atr_result_messages.
 """
 
 import argparse
@@ -12,6 +18,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
@@ -116,12 +123,18 @@ async def run(args: argparse.Namespace) -> int:
     trust_workspace(workspace)
 
     result = None
+    result_messages = 0
+    num_turns = 0
+    started = time.monotonic()
     with (output_dir / "messages.jsonl").open("w") as messages:
         async for message in query(prompt=prompt, options=build_options(args)):
             messages.write(json.dumps(to_json(message)) + "\n")
             messages.flush()
             if isinstance(message, ResultMessage):
                 result = message
+                result_messages += 1
+                num_turns += message.num_turns or 0
+    wall_ms = round((time.monotonic() - started) * 1000)
 
     if args.collect_worktrees:
         collect_worktrees(workspace, output_dir)
@@ -129,10 +142,15 @@ async def run(args: argparse.Namespace) -> int:
     if result is None:
         print("[atr] the SDK finished without a result message", file=sys.stderr)
         return 2
-    (output_dir / "result.json").write_text(json.dumps(to_json(result), indent=2))
+    data = to_json(result) | {
+        "atr_wall_ms": wall_ms,
+        "atr_num_turns": num_turns,
+        "atr_result_messages": result_messages,
+    }
+    (output_dir / "result.json").write_text(json.dumps(data, indent=2))
     print(
         f"[atr] {getattr(result, 'subtype', '?')}: "
-        f"turns={getattr(result, 'num_turns', '?')} "
+        f"turns={num_turns} wall_ms={wall_ms} "
         f"cost_usd={getattr(result, 'total_cost_usd', '?')}"
     )
     return 0
