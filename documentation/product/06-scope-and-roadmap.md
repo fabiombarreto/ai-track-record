@@ -1,8 +1,8 @@
 # Scope, roadmap and risks
 
-> **Status:** Draft · **Last updated:** 2026-10-20 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-10-23 · **Owner:** Fabio Martins Barreto
 
-AI Track Record is a bounded study that becomes a maintained benchmark ([D-039](../decisions/decision-log.md#d-039)). The MVP target date is the first week of December 2026 ([D-042](../decisions/decision-log.md#d-042)); if the MVP runs late, the date moves and the scope does not ([D-043](../decisions/decision-log.md#d-043)). The MVP scope is accepted and frozen ([D-024](../decisions/decision-log.md#d-024)). Phases 2 and 3 as a whole are still a **proposal**, although some Phase 2 items are already accepted decisions ([D-012](../decisions/decision-log.md#d-012), [D-021](../decisions/decision-log.md#d-021), [D-023](../decisions/decision-log.md#d-023)). The MVP budget is capped at US$ 800 and re-evaluated at M0 ([D-028](../decisions/decision-log.md#d-028)); the Phase 2 budget is open ([D-044](../decisions/decision-log.md#d-044)).
+AI Track Record is a bounded study that becomes a maintained benchmark ([D-039](../decisions/decision-log.md#d-039)). The MVP target date is the first week of December 2026 ([D-042](../decisions/decision-log.md#d-042)); if the MVP runs late, the date moves and the scope does not ([D-043](../decisions/decision-log.md#d-043)). The MVP scope is accepted and frozen ([D-024](../decisions/decision-log.md#d-024)). Phases 2 and 3 as a whole are still a **proposal**, although some Phase 2 items are already accepted decisions ([D-012](../decisions/decision-log.md#d-012), [D-021](../decisions/decision-log.md#d-021), [D-023](../decisions/decision-log.md#d-023)). The MVP budget is capped at US$ 800, with a target of US$ 400 set at M0 ([D-028](../decisions/decision-log.md#d-028)); the Phase 2 budget is open ([D-044](../decisions/decision-log.md#d-044)).
 
 ## 1. Phases at a glance
 
@@ -90,7 +90,7 @@ Planning assumes 10–15 hours of operator time per week. The target dates below
 
 | Milestone | Done when | Effort | Target date |
 |---|---|---|---|
-| **M0. Phase 0 exit** | One relay run and one vanilla run on a small public or synthetic task are graded by a hidden oracle, with reconciled cost. The provider decision for Target A is made ([D-029](../decisions/decision-log.md#d-029)), and the MVP budget ceiling is re-evaluated with the pilot costs ([D-028](../decisions/decision-log.md#d-028)). | 15–20 h | 2026-11-03 |
+| **M0. Phase 0 exit** | One relay run and one vanilla run on a small public or synthetic task are graded by a hidden oracle, with reconciled cost. The provider decision for Target A is made ([D-029](../decisions/decision-log.md#d-029)), and the MVP budget ceiling is re-evaluated with the pilot costs ([D-028](../decisions/decision-log.md#d-028)). | 15–20 h | 2026-11-03; **reached 2026-10-23** |
 | **M1. Tasks frozen** | Target A's scaffold, base commits, three specifications and their validated oracles are ready | 25–40 h | 2026-11-17 |
 | **M2. Harness complete** | Graders, local store and exporter work end to end, and the pilot runs are done | 20–30 h | 2026-11-24 |
 | **M3. Runs graded** | All MVP runs are executed, graded and analyzed | 5–8 h, plus 1–2 days of machine time | 2026-11-30 |
@@ -99,6 +99,14 @@ Planning assumes 10–15 hours of operator time per week. The target dates below
 Total: 80–120 hours, the same as the [estimate](#8-effort-and-cost-estimates).
 
 **Forecast.** At 15 hours per week with effort near the low end, M4 lands in the first week of December. At 12 hours per week with mid-range effort, it lands in mid-December. At 10 hours per week with effort at the high end, it lands in January.
+
+**Re-forecast at M0 (2026-10-23).** Phase 0 ended 11 days before its target date. The later dates stay as they are, and the 11 days are kept as buffer. The order of the milestones does not change. M2 gains three small items from M0:
+
+- the network allowlist and disabled web tools for Target A ([D-050](../decisions/decision-log.md#d-050));
+- the skipped-step flag ([D-051](../decisions/decision-log.md#d-051));
+- the harness fixes found in Phase 0: worktree collection on a timeout, cleanup after a killed job, and a Collector check before each run.
+
+Together they add an estimated 4–8 hours, which the buffer covers. The API credits left at M0, about US$ 94, expire on 2026-11-03 before any Target A task exists. The runs draw on the following billing cycles instead.
 
 **Checkpoint rule.** At each milestone, the remaining work is re-estimated with real data and the MVP date is re-forecast. If a milestone slips, the date moves and the accepted scope stays ([D-043](../decisions/decision-log.md#d-043)).
 
@@ -146,7 +154,7 @@ Order-of-magnitude estimates from the planning analysis of 2026-10-19. They assu
 
 Machine time is the sum of run durations; running two or three runs in parallel shortens the calendar time.
 
-**MVP budget ceiling:** US$ 800, including pilot runs and retries ([D-028](../decisions/decision-log.md#d-028)). It covers the central estimate with a margin of about a third, but not the heavy-run scenario; the pilot runs show which one applies. The Max plan's included API credits, US$ 100 a month, pay first ([D-049](../decisions/decision-log.md#d-049)).
+**MVP budget ceiling:** US$ 800, including pilot runs and retries ([D-028](../decisions/decision-log.md#d-028)). It covers the central estimate with a margin of about a third, but not the heavy-run scenario. **Target, set at M0:** US$ 400. It is a goal that spend may pass, up to the ceiling. The Phase 0 pilots put the 45 runs at about US$ 105 if Target A's tasks were the size of the synthetic task ([M0 review](../research/phase-0-results.md#m0-review)). The Max plan's included API credits, US$ 100 a month, pay first ([D-049](../decisions/decision-log.md#d-049)).
 
 Ways to keep spend down:
 
@@ -166,7 +174,7 @@ Ways to keep spend down:
 | R3 | **Weak or biased oracles**: tests that are too lenient, too strict or tied to one implementation | The success rate means little | Interface contract in the specification; task validity check; oracles reviewed before use |
 | R4 | **Overfitting the workflow**: the operator tunes relay on the tasks that judge it | Inflated relay results | Held-out task set; full version history; public reference target |
 | R5 | **Conflict of interest**: the operator writes the main workflow under test | Readers distrust the results | Independent graders; full record; hypotheses declared before running; public methodology |
-| R6 | **Budget overrun** | Experiments stop half-way | US$ 800 MVP ceiling, re-evaluated at M0 ([D-028](../decisions/decision-log.md#d-028)); caps per run and per experiment; development on the cheapest model; pre-run estimates (Phase 2) |
+| R6 | **Budget overrun** | Experiments stop half-way | US$ 800 MVP ceiling and a US$ 400 target, checked again at M2 ([D-028](../decisions/decision-log.md#d-028)); caps per run and per experiment; development on the cheapest model; pre-run estimates (Phase 2) |
 | R7 | **Private data leak** | Harm to the private target's owner; loss of trust | Allowlist export; leak check; allowed providers per target; codenames; private material outside the repository |
 | R8 | **Provider terms**: consumer subscriptions restrict automated use | Account or legal risk | Benchmark runs use API access meant for programmatic use ([D-027](../decisions/decision-log.md#d-027)) |
 | R9 | **Unsupported routes**: running non-Claude models inside Claude Code is not officially supported, and relay is tuned for Claude | Unfair or misleading comparisons | Such results are labeled as workflow portability and never presented as model rankings |

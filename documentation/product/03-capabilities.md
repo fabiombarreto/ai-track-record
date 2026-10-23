@@ -1,10 +1,10 @@
 # Capabilities
 
-> **Status:** Draft · **Last updated:** 2026-10-20 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-10-23 · **Owner:** Fabio Martins Barreto
 
 This document lists what AI Track Record must be able to do, grouped by area. It describes behavior, not implementation; technology choices are tracked in the [decision log](../decisions/decision-log.md).
 
-**Phase tags** follow the proposed roadmap in [Scope, roadmap and risks](06-scope-and-roadmap.md): **MVP**, **P2** (credibility and breadth) and **P3** (optional extensions, chosen after Phase 2). The capabilities tagged MVP are part of the accepted, frozen MVP scope ([D-024](../decisions/decision-log.md#d-024)); changing them needs a new decision. The P2 and P3 tags are still proposals, except where an accepted decision sets the phase, as [D-021](../decisions/decision-log.md#d-021) and [D-023](../decisions/decision-log.md#d-023) do.
+**Phase tags** follow the proposed roadmap in [Scope, roadmap and risks](06-scope-and-roadmap.md): **MVP**, **P2** (credibility and breadth) and **P3** (optional extensions, chosen after Phase 2). The capabilities tagged MVP are part of the accepted, frozen MVP scope ([D-024](../decisions/decision-log.md#d-024)); changing them needs a new decision. The P2 and P3 tags are still proposals, except where an accepted decision sets the phase, as [D-021](../decisions/decision-log.md#d-021) and [D-023](../decisions/decision-log.md#d-023) do. At M0, [D-050](../decisions/decision-log.md#d-050) moved RUN-08 into the MVP and [D-051](../decisions/decision-log.md#d-051) added GRD-09.
 
 ## 1. Targets and tasks
 
@@ -59,7 +59,7 @@ This document lists what AI Track Record must be able to do, grouped by area. It
 | RUN-05 | Save the final diff, logs, transcripts and workflow artifacts. | MVP |
 | RUN-06 | Classify the outcome (`completed`, `halted`, `budget_exceeded`, `timed_out`, `error`) and keep the workflow's native reason. | MVP |
 | RUN-07 | Retry runs that ended in `error` without counting them as workflow failures, and report how many were retried. | MVP |
-| RUN-08 | Restrict network access during a run to what the task allows, such as model endpoints and package registries. | P2 |
+| RUN-08 | Restrict network access during a run to what the task allows, such as model endpoints and package registries. On Target A: the model API, the Collector and the package index, with web tools disabled ([D-050](../decisions/decision-log.md#d-050)). | MVP |
 | RUN-09 | Execute several runs in parallel within the operator's limits. | P2 |
 
 ## 5. Telemetry
@@ -85,6 +85,7 @@ This document lists what AI Track Record must be able to do, grouped by area. It
 | GRD-06 | Score each run with an LLM judge on a published rubric that includes a mergeability verdict. | P2 |
 | GRD-07 | Calibrate the LLM judge against human grades and publish the agreement. | P2 |
 | GRD-08 | Hide the configuration from human graders (blind review). | P2 |
+| GRD-09 | Record which of the workflow's own protocol steps a run skipped and whether it said so, and flag silent skips for review, outside every grade ([D-051](../decisions/decision-log.md#d-051)). | MVP |
 
 ## 7. Storage and analysis
 

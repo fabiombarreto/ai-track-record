@@ -1,6 +1,6 @@
 # Phase 0 results
 
-> **Status:** In progress · **Last updated:** 2026-10-23 · **Owner:** Fabio Martins Barreto
+> **Status:** Complete · **Last updated:** 2026-10-23 · **Owner:** Fabio Martins Barreto
 
 This report records what Phase 0 actually found, work package by work package, against the [Phase 0 plan](../plans/phase-0.md) and its [checks](phase-0-tooling.md#7-phase-0-checks). It is completed at milestone M0.
 
@@ -15,7 +15,7 @@ This report records what Phase 0 actually found, work package by work package, a
 | 4. Relay and vanilla adapters | Done | 2026-10-22 |
 | 5. Telemetry and loader | Done | 2026-10-22 |
 | 6. Pilot runs and checks | Done | 2026-10-23 |
-| 7. M0 review | Not started | |
+| 7. M0 review | Done | 2026-10-23 |
 
 ## WP0 and WP1: environment
 
@@ -344,9 +344,47 @@ Every check now has a result. Harbor passed checks 1, 3 and 8, and the SDK passe
 
 ### Follow-ups
 
-- **Workflow fidelity:** measure relay's protocol adherence, since relay on Sonnet skipped steps that the grade cannot see.
+- **Skipped steps:** flag protocol steps skipped without notice, outside the grades ([D-051](../decisions/decision-log.md#d-051)).
 - **Timeouts:** collect relay's worktrees outside the runner, so a timed-out run is graded with its partial code.
 - **Killed jobs:** remove a killed trial's containers before resuming.
 - **Before a run:** check that the Collector is up.
-- **Target A:** add a `disallowed_tools` option to the runner if M0 picks option 1 or 2 for the network.
+- **Target A:** add a `disallowed_tools` option to the runner and the allowlist to Target A's task templates ([D-050](../decisions/decision-log.md#d-050)).
 - **Tasks:** the MVP's tasks must be hard enough to separate the configurations.
+
+## M0 review
+
+Held on 2026-10-23, eleven days before the planned date. Phase 0 meets its exit criterion. Relay and vanilla runs on the synthetic task were graded by a hidden oracle, with costs that reconcile with the provider's.
+
+### Decisions
+
+| Topic | Outcome |
+|---|---|
+| Runner | Harbor is kept: checks 1, 3 and 8 passed ([D-030](../decisions/decision-log.md#d-030)) |
+| Run path | The Agent SDK is kept: check 10 passed ([D-049](../decisions/decision-log.md#d-049)) |
+| Providers for Target A | Anthropic only, already accepted on 2026-10-22 ([D-029](../decisions/decision-log.md#d-029)) |
+| Budget | The ceiling stays at US$ 800, with a new target of US$ 400 that spend may pass ([D-028](../decisions/decision-log.md#d-028)) |
+| Network on Target A | Model API, Collector and package index; WebSearch and WebFetch disabled in every configuration ([D-050](../decisions/decision-log.md#d-050)) |
+| Skipped workflow steps | Not a metric. Silent skips are flagged for review, outside the grades ([D-051](../decisions/decision-log.md#d-051)) |
+| Schedule | Later dates unchanged; the 11 days are buffer, and M2 gains the items above ([schedule](../product/06-scope-and-roadmap.md#4-schedule-to-the-mvp)) |
+| Credits left | About US$ 94, expiring on 2026-11-03. Milestone order stays, so they expire unused, and the MVP runs draw on later billing cycles |
+
+### Cost projection for the MVP
+
+These are per-run costs from the Phase 0 pilots on task 01. Two configurations were not piloted, so their costs are estimates.
+
+| Configuration | Cost per run on task 01 | Basis |
+|---|---|---|
+| Reference: relay on Sonnet | US$ 2.79 | WP6 pilot |
+| Smaller model: relay on Haiku | about US$ 1.1 | WP4 and WP6 pilots, US$ 1.04–1.20 |
+| Larger model: relay on Opus | about US$ 4.7 | Estimate: the Sonnet pilot's tokens at Opus 5.5 prices |
+| Earlier release: relay on Sonnet | about US$ 2.8 | Estimate: the same as the reference |
+| Baseline: vanilla on Sonnet | US$ 0.18 | WP6 pilot |
+| **Total per task and repetition** | **about US$ 11.6** | |
+
+At that size, the 45 runs would cost about US$ 105. The US$ 400 target leaves room for Target A tasks a little over three times as costly as task 01, and the ceiling for about six times, both with retries. Target A's tasks are meant to be harder, so M2 checks the estimate with pilots on them before the full runs.
+
+### Carried into the MVP
+
+- Target A's tasks must be hard enough to separate the configurations: task 01 gave every configuration 1.0.
+- Repetitions matter: the same configuration took 18.5 and 32.9 minutes on two runs.
+- The follow-ups above are part of M2.

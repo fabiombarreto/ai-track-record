@@ -1,6 +1,6 @@
 # Decision log
 
-> **Status:** Draft · **Last updated:** 2026-10-21 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-10-23 · **Owner:** Fabio Martins Barreto
 
 Every product decision and its status:
 
@@ -63,6 +63,8 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 | [D-047](#d-047) | Harness language: Python 3.12, managed with uv | Accepted |
 | [D-048](#d-048) | Phase 0 is built in interactive sessions | Accepted |
 | [D-049](#d-049) | Runs go through the Agent SDK, paid with the Max plan's API credits | Accepted |
+| [D-050](#d-050) | Network for Target A runs: the model API and the package index, no web tools | Accepted |
+| [D-051](#d-051) | Skipped workflow steps are flagged, not scored | Accepted |
 
 ## Decisions
 
@@ -294,6 +296,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Decision:** Model API spend for the MVP is capped at US$ 800, including pilot runs and retries. The ceiling is re-evaluated at M0 with the actual cost of the Phase 0 pilot runs.
 - **Why:** It covers the central estimate for the frozen scope ([D-024](#d-024)), about US$ 600, with a margin of about a third. It does not cover the heavy-run scenario, up to about US$ 1,340; the pilot runs show which scenario applies. See the [estimates](../product/06-scope-and-roadmap.md#8-effort-and-cost-estimates).
 - **Consequences:** The per-experiment cap ([EXP-03](../product/03-capabilities.md#3-experiments)) is set from this ceiling. If the pilot runs show that the 45 runs will not fit, the ceiling is revisited at M0; reducing the frozen scope would need a new decision. The Phase 2 budget is [D-044](#d-044). From [D-049](#d-049), the Max plan's included API credits (US$ 100 a month) pay first, and purchased credits pay the rest, up to the ceiling.
+- **M0 re-evaluation (2026-10-23):** the ceiling stays at US$ 800, and the MVP now also has a **target of US$ 400**. The target is a goal, not a limit: if the runs need more, spend may pass it, up to the ceiling. The Phase 0 pilots put the five configurations at about US$ 12 per task and repetition on the synthetic task, so the 45 runs would cost about US$ 105 at that size. The US$ 400 target holds for Target A tasks up to about three times that size, and the ceiling up to about six times. The estimate is checked again at M2 with the pilot runs on Target A's tasks ([Phase 0 results](../research/phase-0-results.md#m0-review)).
 
 ### D-029
 
@@ -316,6 +319,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
   - The [integrity requirements](../research/phase-0-tooling.md#5-integrity-requirements-for-any-runner) apply: single-commit workspaces with no history, grading in a fresh container, one container per run, contained agents, and a dedicated API key with a spend limit. They make capabilities RUN-01, TGT-03 and GRD-01 more precise without adding to the frozen scope ([D-024](#d-024)).
   - Each run image pins the Claude Code engine at the latest release when Phase 0 starts, and no older than 2.1.304.
   - With [D-049](#d-049), runs use a custom Harbor agent that drives the Agent SDK instead of Harbor's built-in Claude Code agent.
+- **M0 outcome (2026-10-23):** Harbor is kept. It passed checks 1, 3 and 8: plugin loading, hidden tests, and three parallel runs of more than an hour with resume and timeout handling. The custom runner is not needed. The gaps found, orphaned containers after a killed job and relay's worktree on a timeout, are fixed in the thin layer during M2 ([Phase 0 results](../research/phase-0-results.md#checks)).
 - **Evidence:** [Phase 0 tooling](../research/phase-0-tooling.md#4-runner-options-d-030). Alternatives considered: Inspect AI with inspect_swe, and a custom runner.
 
 ### D-031
@@ -492,4 +496,35 @@ Entries are listed in ID order and keep their ID when their status changes. To c
   - The pinned SDK version fixes the Claude Code engine, since the SDK bundles it.
   - The credits expire each billing cycle without rollover, and every key in the linked organization draws from them. The linked organization starts at the Start rate-limit tier, which may limit parallel runs.
   - If the SDK cannot reproduce the CLI's behavior, runs go back to the CLI, paid with purchased credits.
+- **M0 outcome (2026-10-23):** kept. Check 10 passed. The SDK's init messages and request bodies match the headless CLI's except for IDs, the entry-point label and one Bash timeout default, and the spend came from the included credits ([Phase 0 results](../research/phase-0-results.md#agent-sdk-and-cli-parity-check-10)).
 - **Evidence:** [API credits for Max and Team plans](https://platform.claude.com/docs/en/about-claude/api-credits-for-subscribers), the [Consumer Terms](https://www.anthropic.com/legal/consumer-terms) (section 3, item 7) and [Claude Code's legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance.md), all read on 2026-10-21.
+
+### D-050
+
+**Network for Target A runs: the model API and the package index, no web tools**
+
+- **Status:** Accepted, 2026-10-23
+- **Decision:** On Target A, the agent phase of every run uses Harbor's network allowlist:
+  - the allowlist names the model API, the telemetry Collector and the package index (`pypi.org` and `files.pythonhosted.org`, or Target A's own registries);
+  - `WebSearch` and `WebFetch` are disabled in every configuration;
+  - the verifier gets the same package index, since it installs what the agent added.
+- **Why:**
+  - With an open network, the Phase 0 runs reached PyPI and, through relay's research agent, ran web searches and fetched external pages about the feature being built. On Target A those queries and URLs could reveal what the product is building.
+  - The allowlist blocked PyPI, PostHog and WebFetch on this machine. WebSearch still worked, because it runs behind the model API, so only disabling the tool keeps queries private ([check 5](../research/phase-0-results.md#network-check-5)).
+  - The package index stays open so that a task whose solution adds a dependency can still pass.
+- **Consequences:**
+  - The runner gets an option for disallowed tools. Target A's task templates set the allowlist. Both land before Target A's pilot runs.
+  - Relay's web research agent has no web on Target A. The same limit applies to every configuration, in line with [D-020](#d-020).
+  - Public targets may keep an open network. The tool calls are recorded in the transcripts.
+  - Harbor's own telemetry runs on the WSL host, outside the allowlist. It stays off through `HARBOR_TELEMETRY=off` ([D-030](#d-030)).
+
+### D-051
+
+**Skipped workflow steps are flagged, not scored**
+
+- **Status:** Accepted, 2026-10-23
+- **Decision:** Skipping a step of a workflow's own protocol is not a metric. A workflow may skip steps it judges unnecessary, and the quality of the result is what shows whether that judgment was right. Each run records which protocol steps were skipped and whether the run said so. A step skipped **without notice** is flagged for review as a possible error. Flags do not enter any grade.
+- **Why:** In Phase 0, relay on Sonnet worked without a worktree, skipped the docs sync and dispatched agents directly, and it announced each deviation in its summary. Relay on Haiku ran the full protocol. Both scored 1.0. A silent skip, unlike an announced one, may be a failure to follow the workflow that the grade cannot see.
+- **Consequences:**
+  - This adds a small capability to the frozen MVP scope ([D-024](#d-024)): a check per run that reads the workflow's own records. For relay these are `orchestrator-run.json` and its final summary. The flag shows in the run explorer next to the grades.
+  - Vanilla has no protocol, so it has nothing to flag.

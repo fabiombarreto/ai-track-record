@@ -1,6 +1,6 @@
 # Phase 0 plan: feasibility spike
 
-> **Status:** Draft · **Last updated:** 2026-10-21 · **Owner:** Fabio Martins Barreto
+> **Status:** Done · **Last updated:** 2026-10-23 · **Owner:** Fabio Martins Barreto
 
 Phase 0 proves that a task can run unattended end to end, with full telemetry and grading, before any work on the dashboard. It ends at milestone **M0 on 2026-11-03** ([schedule](../product/06-scope-and-roadmap.md#4-schedule-to-the-mvp)) with:
 

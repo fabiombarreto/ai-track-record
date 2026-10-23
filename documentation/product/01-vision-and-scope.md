@@ -1,6 +1,6 @@
 # Vision and scope
 
-> **Status:** Draft · **Last updated:** 2026-10-20 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-10-23 · **Owner:** Fabio Martins Barreto
 
 This document defines what AI Track Record is and is not, who it is for, what it does and does not do, and what it aims to achieve. Items backed by an **Accepted** decision come from the owner; everything else is a proposal until it is accepted in the [decision log](../decisions/decision-log.md).
 
@@ -107,7 +107,7 @@ These follow the MVP scope, which is accepted and frozen ([D-024](../decisions/d
 
 | ID | Objective | Measure of success | Status |
 |---|---|---|---|
-| OI-1 | Prove the method end to end: an unattended run on a small public or synthetic task, graded by a hidden oracle, with captured cost | The Phase 0 exit criterion is met (milestone M0) | Accepted |
+| OI-1 | Prove the method end to end: an unattended run on a small public or synthetic task, graded by a hidden oracle, with captured cost | The Phase 0 exit criterion is met (milestone M0) | Accepted; met on 2026-10-23 ([Phase 0 results](../research/phase-0-results.md#m0-review)) |
 | OI-2 | Publish the first trustworthy results on Target A: relay versus vanilla, three model tiers and two relay releases | MVP success criteria SC-1 to SC-6 are met and the dashboard is public | Accepted |
 | OI-3 | Answer three questions with evidence: is relay worth its cost, how much does the model tier matter, and did recent relay changes help | Each question has a published answer with its uncertainty | Accepted |
 | OI-4 | Publish the first write-up, in the form "measured X, found Y, changed Z" | The write-up is published and linked from the dashboard | Accepted |
@@ -149,7 +149,7 @@ The objectives are accepted ([D-040](../decisions/decision-log.md#d-040)); how t
 | ID | Constraint | Source |
 |---|---|---|
 | CN-1 | One operator, working part-time (10–15 hours per week planned until the MVP), builds and runs everything | Project reality |
-| CN-2 | Model API spend for the MVP is capped at US$ 800, re-evaluated at M0 | [D-028](../decisions/decision-log.md#d-028) |
+| CN-2 | Model API spend for the MVP is capped at US$ 800, with a target of US$ 400 set at M0 | [D-028](../decisions/decision-log.md#d-028) |
 | CN-3 | Everything except the dashboard runs on the operator's machine | [D-003](../decisions/decision-log.md#d-003) |
 | CN-4 | Material from private targets never appears in the public layers | [D-002](../decisions/decision-log.md#d-002) |
 | CN-5 | Only providers allowed for a target may receive its content | [D-026](../decisions/decision-log.md#d-026) |
@@ -165,7 +165,7 @@ These are believed to be true but are not yet verified. Phase 0 tests the first 
 | AS-1 | Relay can run its autonomous pipeline with no human input, with small changes at most | Relay needs a non-interactive mode before Phase 1 |
 | AS-2 | Every sub-agent can be forced to use the model under test | Model comparisons need generated variants of the workflow |
 | AS-3 | Tokens, cost and time can be captured for the orchestrator and for every sub-agent | Cost data has to come from a gateway or from billing |
-| AS-4 | A medium-sized run costs roughly US$ 2–25, depending on the model | The MVP ceiling is revisited at M0 ([D-028](../decisions/decision-log.md#d-028)); the frozen scope changes only through a new decision |
+| AS-4 | A medium-sized run costs roughly US$ 2–25, depending on the model | Phase 0 pilots on a small synthetic task cost US$ 0.02–2.8 per run; the MVP estimate is checked again at M2 on Target A's tasks ([D-028](../decisions/decision-log.md#d-028)); the frozen scope changes only through a new decision |
 | AS-5 | Target A's tasks can be specified with an interface contract precise enough for hidden tests | Tasks are redesigned or replaced |
 | AS-6 | Three repetitions are enough to separate configurations that differ meaningfully | More repetitions, or fewer configurations |
 | AS-7 | Model providers can receive Target A's content by milestone M0 ([D-029](../decisions/decision-log.md#d-029)); confirmed on 2026-10-22 for Anthropic models | The MVP waits, or runs on a public target instead |
