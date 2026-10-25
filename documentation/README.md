@@ -4,7 +4,7 @@
 
 AI Track Record is a local-first benchmarking system for AI coding agents. It runs the same specification-to-pull-request task under different models and prompt workflows, grades every run with checks the agent never sees, and publishes cost, time and quality on a public dashboard without exposing private code.
 
-**Current stage:** planning. No code has been written yet.
+**Current stage:** Phase 1, the MVP. Phase 0 closed at M0, and Target A's three tasks were frozen at M1.
 
 This folder is the source of truth for what the product is, why it exists and what has been decided. Technical documentation will be added here as the design progresses.
 
@@ -36,6 +36,7 @@ Evidence gathered to support specific decisions.
 |---|---|
 | [Phase 0 tooling](research/phase-0-tooling.md) | The runner, the observability stack and the local store ([D-030](decisions/decision-log.md#d-030), [D-032](decisions/decision-log.md#d-032), [D-033](decisions/decision-log.md#d-033)) |
 | [Phase 0 results](research/phase-0-results.md) | What each Phase 0 work package found, and the status of every check |
+| [M1 results](research/m1-results.md) | Target A's scaffold, its three tasks and how their hidden oracles were validated |
 
 ## Conventions
 

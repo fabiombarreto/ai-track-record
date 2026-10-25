@@ -1,6 +1,6 @@
 # Scope, roadmap and risks
 
-> **Status:** Draft · **Last updated:** 2026-10-23 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-10-25 · **Owner:** Fabio Martins Barreto
 
 AI Track Record is a bounded study that becomes a maintained benchmark ([D-039](../decisions/decision-log.md#d-039)). The MVP target date is the first week of December 2026 ([D-042](../decisions/decision-log.md#d-042)); if the MVP runs late, the date moves and the scope does not ([D-043](../decisions/decision-log.md#d-043)). The MVP scope is accepted and frozen ([D-024](../decisions/decision-log.md#d-024)). Phases 2 and 3 as a whole are still a **proposal**, although some Phase 2 items are already accepted decisions ([D-012](../decisions/decision-log.md#d-012), [D-021](../decisions/decision-log.md#d-021), [D-023](../decisions/decision-log.md#d-023)). The MVP budget is capped at US$ 800, with a target of US$ 400 set at M0 ([D-028](../decisions/decision-log.md#d-028)); the Phase 2 budget is open ([D-044](../decisions/decision-log.md#d-044)).
 
@@ -91,7 +91,7 @@ Planning assumes 10–15 hours of operator time per week. The target dates below
 | Milestone | Done when | Effort | Target date |
 |---|---|---|---|
 | **M0. Phase 0 exit** | One relay run and one vanilla run on a small public or synthetic task are graded by a hidden oracle, with reconciled cost. The provider decision for Target A is made ([D-029](../decisions/decision-log.md#d-029)), and the MVP budget ceiling is re-evaluated with the pilot costs ([D-028](../decisions/decision-log.md#d-028)). | 15–20 h | 2026-11-03; **reached 2026-10-23** |
-| **M1. Tasks frozen** | Target A's scaffold, base commits, three specifications and their validated oracles are ready | 25–40 h | 2026-11-17 |
+| **M1. Tasks frozen** | Target A's scaffold, base commits, three specifications and their validated oracles are ready | 25–40 h | 2026-11-17; **reached 2026-10-25** |
 | **M2. Harness complete** | Graders, local store and exporter work end to end, and the pilot runs are done | 20–30 h | 2026-11-24 |
 | **M3. Runs graded** | All MVP runs are executed, graded and analyzed | 5–8 h, plus 1–2 days of machine time | 2026-11-30 |
 | **M4. MVP public** | The dashboard is published and the write-up is out | 15–22 h | 2026-12-04 |
@@ -107,6 +107,8 @@ Total: 80–120 hours, the same as the [estimate](#8-effort-and-cost-estimates).
 - the harness fixes found in Phase 0: worktree collection on a timeout, cleanup after a killed job, and a Collector check before each run.
 
 Together they add an estimated 4–8 hours, which the buffer covers. The API credits left at M0, about US$ 94, expire on 2026-11-03 before any Target A task exists. The runs draw on the following billing cycles instead.
+
+**Re-forecast at M1 (2026-10-25).** M1 ended 23 days before its target date ([M1 results](../research/m1-results.md)). The later dates stay as they are, and the buffer grows to 23 days. The network allowlist in Target A's task templates, one of the M2 items above, was done in M1; disabling the web tools stays in M2. The M2 pilots check both whether the tasks separate the configurations and what they cost: their reference changes are several times the size of the synthetic task's.
 
 **Checkpoint rule.** At each milestone, the remaining work is re-estimated with real data and the MVP date is re-forecast. If a milestone slips, the date moves and the accepted scope stays ([D-043](../decisions/decision-log.md#d-043)).
 

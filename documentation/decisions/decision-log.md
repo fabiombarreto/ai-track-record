@@ -1,6 +1,6 @@
 # Decision log
 
-> **Status:** Draft · **Last updated:** 2026-10-23 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-10-25 · **Owner:** Fabio Martins Barreto
 
 Every product decision and its status:
 
@@ -180,6 +180,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Status:** Accepted, 2026-10-20, with the MVP scope ([D-024](#d-024)). Proposed 2026-10-19.
 - **Decision:** Each task starts from an approved specification and a base commit that do not change during an experiment. Writing the specification, including relay's interactive PRD flow, is outside the measured run. When a target has no suitable code for a task yet, a minimal scaffold is created and frozen as the base commit.
 - **Why:** Interactive steps cannot be repeated identically; frozen inputs make runs comparable.
+- **M1 outcome (2026-10-25):** applied to Target A, which had no application code. A minimal backend scaffold became the first base. The three tasks form a series of pull requests, and each specification was approved with `/relay:relay-prd` and frozen at its base ([M1 results](../research/m1-results.md)).
 
 ### D-015
 
@@ -517,6 +518,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
   - Relay's web research agent has no web on Target A. The same limit applies to every configuration, in line with [D-020](#d-020).
   - Public targets may keep an open network. The tool calls are recorded in the transcripts.
   - Harbor's own telemetry runs on the WSL host, outside the allowlist. It stays off through `HARBOR_TELEMETRY=off` ([D-030](#d-030)).
+- **M1 outcome (2026-10-25):** Target A's task templates set the allowlist for the agent and verifier phases. With an allowlist, Harbor routes the task's database through its egress sidecar, so the API reaches it on `127.0.0.1` instead of its service name ([M1 results](../research/m1-results.md#allowlist-and-side-services)). Disabling the web tools in the runner stays in M2.
 
 ### D-051
 
