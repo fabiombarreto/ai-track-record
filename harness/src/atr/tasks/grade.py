@@ -47,7 +47,7 @@ def extract_changes() -> str:
     return diff.stdout
 
 
-def prepare_workspace(changes: str) -> None:
+def prepare_workspace(changes: str, project: Path) -> None:
     shutil.copytree(PRISTINE, WORK, symlinks=True)
     patch = OUT / "changes.patch"
     patch.write_text(changes)
@@ -55,12 +55,12 @@ def prepare_workspace(changes: str) -> None:
         applied = run(["git", "apply", "--whitespace=nowarn", str(patch)], cwd=WORK)
         if applied.returncode:
             raise RuntimeError(f"the run's changes do not apply: {applied.stderr}")
-    synced = run(["uv", "sync", "--frozen", "--no-install-project"], cwd=WORK)
+    synced = run(["uv", "sync", "--frozen", "--no-install-project"], cwd=project)
     if synced.returncode:
         raise RuntimeError(f"dependencies do not install: {synced.stderr[-2000:]}")
 
 
-def run_tests() -> list[dict]:
+def run_tests(project: Path) -> list[dict]:
     junit = OUT / "junit.xml"
     result = run(
         [
@@ -74,7 +74,7 @@ def run_tests() -> list[dict]:
             str(GRADING / "hidden"),
         ],
         cwd=GRADING,
-        env={**os.environ, "PYTHONPATH": str(WORK)},
+        env={**os.environ, "PYTHONPATH": str(project)},
     )
     (OUT / "pytest.txt").write_text(result.stdout + result.stderr)
     if not junit.exists():
@@ -116,12 +116,14 @@ def score(tests: list[dict], criteria: list[str]) -> dict:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    criteria = json.loads((GRADING / "task.json").read_text())["criteria"]
+    config = json.loads((GRADING / "task.json").read_text())
+    criteria = config["criteria"]
+    project = WORK / config.get("project_dir", ".")
     details: dict = {"criteria": criteria}
     rewards = {"reward": 0.0, "criteria_satisfied": 0.0, "existing_tests_pass": 0.0}
     try:
-        prepare_workspace(extract_changes())
-        tests = run_tests()
+        prepare_workspace(extract_changes(), project)
+        tests = run_tests(project)
         result = score(tests, criteria)
         details["tests"] = tests
         details["criteria_satisfied"] = result.pop("_satisfied")

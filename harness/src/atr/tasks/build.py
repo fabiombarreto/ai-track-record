@@ -7,6 +7,14 @@ base ref becomes the agent's starting point, as a snapshot with no other git
 history. The hidden tests come from the solution ref, and the rest of the
 solution's changes become the reference solution that Harbor's oracle agent
 applies. Templates come from the "templates" folder next to the manifest.
+
+Optional manifest keys:
+- task.project_dir: the Python project's folder inside the repository, for
+  monorepos (default: the repository root).
+- task.test_support: files from the base ref, such as a conftest.py, copied to
+  the grading root so that both the existing and the hidden tests use them.
+- network.agent_allowed_hosts and network.verifier_allowed_hosts: Harbor's
+  network allowlist for each phase (default: an open network).
 """
 
 import argparse
@@ -56,10 +64,10 @@ tags = []
 [verifier]
 timeout_sec = {verifier_timeout}.0
 environment_mode = "separate"
-
+{verifier_network}
 [agent]
 timeout_sec = {agent_timeout}.0
-
+{agent_network}
 [environment]
 build_timeout_sec = 1200.0
 cpus = 2
@@ -93,9 +101,17 @@ def write(path: Path, content: str | bytes, executable: bool = False) -> None:
         path.chmod(0o755)
 
 
+def network_policy(hosts: list[str] | None) -> str:
+    """Lines for a phase's Harbor network allowlist; nothing keeps the default network."""
+    if hosts is None:
+        return ""
+    return f'network_mode = "allowlist"\nallowed_hosts = {json.dumps(hosts)}\n'
+
+
 def build(manifest_path: Path, out_root: Path) -> Path:
     manifest = tomllib.loads(manifest_path.read_text())
     target, task = manifest["target"], manifest["task"]
+    network = manifest.get("network", {})
     repo = Path(os.path.expanduser(target["repository"]))
     templates = manifest_path.parent / "templates"
     base, solution = task["base_ref"], task["solution_ref"]
@@ -122,7 +138,10 @@ def build(manifest_path: Path, out_root: Path) -> Path:
         write(grading / "hidden" / Path(path).name, git(repo, "show", f"{solution}:{path}"))
     for path in task["existing_tests"]:
         write(grading / "existing" / Path(path).name, git(repo, "show", f"{base}:{path}"))
-    write(grading / "task.json", json.dumps({"criteria": task["criteria"]}, indent=2))
+    for path in task.get("test_support", []):
+        write(grading / Path(path).name, git(repo, "show", f"{base}:{path}"))
+    grading_config = {"criteria": task["criteria"], "project_dir": task.get("project_dir", ".")}
+    write(grading / "task.json", json.dumps(grading_config, indent=2))
 
     excluded = [f":(exclude){path}" for path in task["hidden_tests"]]
     patch = git(repo, "diff", "--binary", base, solution, "--", ".", *excluded)
@@ -140,6 +159,8 @@ def build(manifest_path: Path, out_root: Path) -> Path:
             category=task["category"],
             agent_timeout=task["agent_timeout_sec"],
             verifier_timeout=task["verifier_timeout_sec"],
+            agent_network=network_policy(network.get("agent_allowed_hosts")),
+            verifier_network=network_policy(network.get("verifier_allowed_hosts")),
         ),
     )
     return out
