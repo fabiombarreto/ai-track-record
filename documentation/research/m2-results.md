@@ -14,7 +14,7 @@ This report records milestone M2 as it progresses: the harness items carried fro
 | Budget check with the pilot costs ([D-028](../decisions/decision-log.md#d-028)) | Done | 2026-10-26 |
 | Graders: static analysis and independent review | Not started | |
 | Skipped-step flag ([D-051](../decisions/decision-log.md#d-051)) | Not started | |
-| Phase 0 harness fixes: worktree collection on a timeout, cleanup after a killed job, Collector check before each run | Not started | |
+| Phase 0 harness fixes: worktree collection on a timeout, cleanup after a killed job, Collector check before each run | Done | 2026-10-26 |
 | Local store and exporter end to end | Not started | |
 
 ## Web tools disabled
@@ -32,7 +32,19 @@ Relay's plan writer treats an unusable research result as partial research and c
 
 Relay works in a git worktree and leaves its changes uncommitted there. The runner used to bring them into the main tree by applying the worktree's diff as a patch. Relay also writes some of its reports in the main tree. In the first relay pilot one of them already existed there, so `git apply` refused the whole patch: a run that relay completed with 161 passing tests of its own was graded 0.0.
 
-The runner now copies every file the worktree changed against `base` over the main tree, so the worktree wins. The failed run was graded again from its saved artifacts through Harbor's verifier and scored 1.0. The pilot table below shows the corrected grade.
+Collection now copies every file the worktree changed against `base` over the main tree, so the worktree wins. The failed run was graded again from its saved artifacts through Harbor's verifier and scored 1.0. The pilot table below shows the corrected grade.
+
+## Phase 0 harness fixes
+
+Three gaps found in Phase 0 ([follow-ups](phase-0-results.md#follow-ups)) are closed. Each fix was tested on a copy of Target A's task 01 whose `oracle` imitates the failure.
+
+| Gap | Fix | Test |
+|---|---|---|
+| A timeout kills the runner before it collects relay's worktree, so the run is graded without its partial code | Collection moved from the runner to the grader, which runs after the agent phase however it ended. The grader records each worktree in `details.json`, and `.worktrees/` never crosses as a nested repository | An `oracle` that writes the solution into an uncommitted worktree, puts a report in both trees and then hangs was stopped by the timeout (`AgentTimeoutError`). The grader collected 6 files, the worktree's copy of the report won, and the run scored 1.0 |
+| A killed job leaves its trial's containers and networks running | `python -m atr.ops.cleanup <job dir>` removes the Compose projects of every trial without a result, matched by the trial name Harbor gives them. `--dry-run` lists them first | Harbor was killed with SIGKILL mid-trial. The command removed the trial's three containers and its network, and left the Collector and other containers alone |
+| A run started while the Collector is down loses its telemetry without notice | Before the runner starts, the agent sends an empty OTLP request from the task container to the Collector. Anything but HTTP 200 fails the trial with a clear error, before any API call. An empty request records nothing | With the Collector stopped, the trial failed with "telemetry Collector … did not answer" and made no API call. With it running, the same trial passed |
+
+The synthetic task and Target A's task 03 still score 1.0 with `oracle` after the change.
 
 ## Pilot runs on Target A
 
@@ -68,7 +80,7 @@ Vanilla on Haiku met every criterion of the same tasks, so the halts come from r
 
 ### Docker Desktop can stop during unattended runs
 
-Overnight, Docker Desktop stopped while a pilot was running. The run was lost with no result, its containers exited, and the telemetry Collector stopped with them. The trial was set aside and run again. This adds weight to the Phase 0 items on cleanup after a killed job and on checking the Collector before each run.
+Overnight, Docker Desktop stopped while a pilot was running. The run was lost with no result, its containers exited, and the telemetry Collector stopped with them. The trial was set aside and run again. The harness fixes above now cover the cleanup and the Collector. Long unattended batches, such as M3's, still need someone to restart Docker Desktop if it stops.
 
 ## Budget check
 

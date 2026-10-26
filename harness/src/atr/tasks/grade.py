@@ -2,10 +2,14 @@
 
 Copied into each generated task as tests/grading/grade.py and run by
 tests/test.sh. Only the run's changes cross from the agent: the git diff of
-/app against its "base" tag. Files ignored by git, such as caches or relay's
-worktrees, never reach the grader. The diff is applied to a clean copy of the
-base commit, and the pristine existing tests plus the hidden tests run from
-/grading, outside the agent's code, so no conftest.py the agent wrote is
+/app against its "base" tag. Workflows such as relay work in git worktrees
+under /app/.worktrees and leave their changes uncommitted there, so every
+file a worktree changed against "base" is first copied over /app, and the
+worktree wins. This happens here, not in the agent, so a run stopped by a
+timeout is still graded with its partial code. Other files ignored by git,
+such as caches, never reach the grader. The diff is applied to a clean copy
+of the base commit, and the pristine existing tests plus the hidden tests run
+from /grading, outside the agent's code, so no conftest.py the agent wrote is
 loaded.
 
 Writes /logs/verifier/reward.json:
@@ -34,13 +38,57 @@ def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(command, capture_output=True, text=True, **kwargs)
 
 
+def copy_worktree_changes(worktree: Path) -> dict:
+    """Copy every file the worktree changed against "base" over /app."""
+    staged = run(["git", "-C", str(worktree), "add", "-A"])
+    if staged.returncode:
+        raise RuntimeError(f"git add failed: {staged.stderr}")
+    listed = run(
+        ["git", "-C", str(worktree), "diff", "--cached", "--name-status", "--no-renames", "-z", "base"]
+    )
+    if listed.returncode:
+        raise RuntimeError(f"git diff against base failed: {listed.stderr}")
+    fields = listed.stdout.split("\0")
+    copied, deleted = 0, 0
+    for status, path in zip(fields[0::2], fields[1::2], strict=False):
+        target = APP / path
+        if status == "D":
+            if target.is_file() or target.is_symlink():
+                target.unlink()
+                deleted += 1
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_file() or target.is_symlink():
+            target.unlink()
+        shutil.copy2(worktree / path, target, follow_symlinks=False)
+        copied += 1
+    return {"copied": copied, "deleted": deleted}
+
+
+def collect_worktrees() -> list[dict]:
+    root = APP / ".worktrees"
+    worktrees = sorted(p for p in root.glob("*") if (p / ".git").exists()) if root.exists() else []
+    report = []
+    for worktree in worktrees:
+        entry = {"worktree": str(worktree.relative_to(APP))}
+        try:
+            entry |= copy_worktree_changes(worktree) | {"collected": True, "error": ""}
+        except (OSError, RuntimeError) as error:
+            entry |= {"collected": False, "error": str(error)[-2000:]}
+        report.append(entry)
+    return report
+
+
 def extract_changes() -> str:
-    if not (APP / ".git").exists():
-        raise RuntimeError("the agent's /app repository was not transferred")
-    run(["git", "config", "--global", "--add", "safe.directory", "*"])
     staged = run(["git", "-C", str(APP), "add", "-A"])
     if staged.returncode:
         raise RuntimeError(f"git add failed: {staged.stderr}")
+    # Worktrees were collected above; they never cross as nested repositories.
+    unstaged = run(
+        ["git", "-C", str(APP), "rm", "-r", "-q", "--cached", "--ignore-unmatch", ".worktrees"]
+    )
+    if unstaged.returncode:
+        raise RuntimeError(f"git rm of .worktrees failed: {unstaged.stderr}")
     diff = run(["git", "-C", str(APP), "diff", "--cached", "--binary", "base"])
     if diff.returncode:
         raise RuntimeError(f"git diff against base failed: {diff.stderr}")
@@ -122,6 +170,10 @@ def main() -> None:
     details: dict = {"criteria": criteria}
     rewards = {"reward": 0.0, "criteria_satisfied": 0.0, "existing_tests_pass": 0.0}
     try:
+        if not (APP / ".git").exists():
+            raise RuntimeError("the agent's /app repository was not transferred")
+        run(["git", "config", "--global", "--add", "safe.directory", "*"])
+        details["worktrees"] = collect_worktrees()
         prepare_workspace(extract_changes(), project)
         tests = run_tests(project)
         result = score(tests, criteria)

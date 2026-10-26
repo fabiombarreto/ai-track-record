@@ -50,10 +50,6 @@ class ClaudeAgentSdkOptions(InstalledAgentOptions):
     install_node: bool = Field(
         default=False, description="Install Node.js, for workflows whose scripts need it."
     )
-    collect_worktrees: bool = Field(
-        default=False,
-        description="After the run, apply changes left in .worktrees/* to the main tree.",
-    )
     otel_endpoint: str | None = Field(
         default=None,
         description="OTLP/HTTP endpoint for Claude Code's telemetry; off when unset.",
@@ -169,6 +165,28 @@ class ClaudeAgentSdk(BaseInstalledAgent):
             ),
         }
 
+    async def _check_collector(self, environment: BaseEnvironment, endpoint: str) -> None:
+        """Fail the trial before any API call if the telemetry Collector does not answer.
+
+        An empty OTLP request gets 200 and records nothing. Without this check a
+        run would lose its telemetry without notice.
+        """
+        url = shlex.quote(f"{endpoint.rstrip('/')}/v1/logs")
+        result = await environment.exec(
+            command=(
+                f"curl -sS -m 10 -o /dev/null -w '%{{http_code}}' -X POST {url} "
+                "-H 'Content-Type: application/json' -d '{}'"
+            )
+        )
+        # The exec may merge curl's error text into stdout; the status code is last.
+        lines = (result.stdout or "").strip().splitlines() or [""]
+        status, detail = lines[-1], " ".join(lines[:-1] + [(result.stderr or "").strip()])
+        if result.return_code != 0 or status != "200":
+            raise RuntimeError(
+                f"telemetry Collector at {endpoint} did not answer "
+                f"(HTTP {status or 'none'}): {detail.strip()[-500:]}"
+            )
+
     @with_prompt_template
     async def run(
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
@@ -200,6 +218,7 @@ class ClaudeAgentSdk(BaseInstalledAgent):
             "CLAUDE_CONFIG_DIR": f"{LOGS_DIR}/claude-config",
         }
         if self.options.otel_endpoint:
+            await self._check_collector(environment, self.options.otel_endpoint)
             env |= self._telemetry_env(self.options.otel_endpoint)
 
         args = [
@@ -220,8 +239,6 @@ class ClaudeAgentSdk(BaseInstalledAgent):
             args += ["--plugin-dir", self.options.plugin_dir]
         if self.options.cwd:
             args += ["--cwd", self.options.cwd]
-        if self.options.collect_worktrees:
-            args += ["--collect-worktrees"]
         for tool in self.options.disallowed_tools:
             args += ["--disallowed-tool", tool]
         args += ["--session-id", self._session_id()]

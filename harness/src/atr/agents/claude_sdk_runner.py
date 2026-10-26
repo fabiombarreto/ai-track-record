@@ -16,8 +16,6 @@ import asyncio
 import dataclasses
 import json
 import os
-import shutil
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -82,57 +80,6 @@ def trust_workspace(workspace: Path) -> None:
     config_file.write_text(json.dumps(config, indent=2))
 
 
-def copy_worktree_changes(repo: Path, worktree: Path) -> dict:
-    """Copy every file the worktree changed against "base" over the main tree.
-
-    The worktree wins: a workflow may also write some of the same files in the
-    main tree, such as its own reports, which would make a patch fail to apply.
-    """
-    subprocess.run(["git", "-C", str(worktree), "add", "-A"], check=True)
-    changes = subprocess.run(
-        ["git", "-C", str(worktree), "diff", "--cached", "--name-status", "--no-renames", "-z", "base"],
-        check=True,
-        capture_output=True,
-    ).stdout.decode()
-    fields = changes.split("\0")
-    copied, deleted = 0, 0
-    for status, path in zip(fields[0::2], fields[1::2], strict=False):
-        target = repo / path
-        if status == "D":
-            if target.is_file() or target.is_symlink():
-                target.unlink()
-                deleted += 1
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.is_symlink() or target.is_file():
-            target.unlink()
-        shutil.copy2(worktree / path, target, follow_symlinks=False)
-        copied += 1
-    return {"copied": copied, "deleted": deleted}
-
-
-def collect_worktrees(repo: Path, output_dir: Path) -> None:
-    """Bring changes left in git worktrees under .worktrees/ into the main tree.
-
-    Workflows such as relay work in a worktree and leave it uncommitted. The
-    grader reads the main tree's diff against the "base" tag, so every file the
-    worktree changed against the same tag is copied there. The outcome of each
-    worktree is recorded in worktrees.json.
-    """
-    root = repo / ".worktrees"
-    worktrees = sorted(p for p in root.glob("*") if (p / ".git").exists()) if root.exists() else []
-    report = []
-    for worktree in worktrees:
-        entry = {"worktree": str(worktree.relative_to(repo))}
-        try:
-            entry |= copy_worktree_changes(repo, worktree) | {"applied": True, "error": ""}
-        except (OSError, subprocess.CalledProcessError) as error:
-            entry |= {"applied": False, "error": str(error)[-2000:]}
-        report.append(entry)
-    (output_dir / "worktrees.json").write_text(json.dumps(report, indent=2))
-    print(f"[atr] worktrees collected: {report}")
-
-
 async def run(args: argparse.Namespace) -> int:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -153,9 +100,6 @@ async def run(args: argparse.Namespace) -> int:
                 result_messages += 1
                 num_turns += message.num_turns or 0
     wall_ms = round((time.monotonic() - started) * 1000)
-
-    if args.collect_worktrees:
-        collect_worktrees(workspace, output_dir)
 
     if result is None:
         print("[atr] the SDK finished without a result message", file=sys.stderr)
@@ -183,7 +127,6 @@ def main() -> int:
     parser.add_argument("--max-budget-usd", type=float)
     parser.add_argument("--plugin-dir")
     parser.add_argument("--cwd")
-    parser.add_argument("--collect-worktrees", action="store_true")
     parser.add_argument("--session-id")
     parser.add_argument(
         "--disallowed-tool", dest="disallowed_tools", action="append", default=[]
