@@ -9,6 +9,8 @@ solution's changes become the reference solution that Harbor's oracle agent
 applies. Templates come from the "templates" folder next to the manifest.
 
 Optional manifest keys:
+- target.codename and target.description: how the target may be named and
+  described in publications (default: its name, and no description).
 - task.project_dir: the Python project's folder inside the repository, for
   monorepos (default: the repository root).
 - task.test_support: files from the base ref, such as a conftest.py, copied to
@@ -153,6 +155,21 @@ def build(manifest_path: Path, out_root: Path) -> Path:
     patch = git(repo, "diff", "--binary", base, solution, "--", ".", *excluded)
     write(out / "solution" / "reference.patch", patch)
     write(out / "solution" / "solve.sh", SOLVE_SH, executable=True)
+
+    # What the store and the exporter know about the task. The codename and
+    # description are what may be published for a private target (D-013).
+    metadata = {
+        "target": target["name"],
+        "codename": target.get("codename", target["name"]),
+        "target_description": target.get("description", ""),
+        "visibility": target["visibility"],
+        "task_id": task["id"],
+        "title": task["title"],
+        "difficulty": task["difficulty"],
+        "category": task["category"],
+        "criteria": len(task["criteria"]),
+    }
+    write(out / "atr-task.json", json.dumps(metadata, indent=2))
 
     write(out / "instruction.md", INSTRUCTION.format(spec=task["spec"]))
     write(

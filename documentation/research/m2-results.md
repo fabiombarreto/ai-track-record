@@ -1,8 +1,10 @@
 # M2 results: harness and pilot runs
 
-> **Status:** Draft · **Last updated:** 2026-10-26 · **Owner:** Fabio Martins Barreto
+> **Status:** Complete · **Last updated:** 2026-10-26 · **Owner:** Fabio Martins Barreto
 
-This report records milestone M2 as it progresses: the harness items carried from M0 and M1, and the pilot runs on Target A's three tasks ([schedule](../product/06-scope-and-roadmap.md#4-schedule-to-the-mvp)). Target A is a private B2B SaaS built with Django and Next.js ([D-013](../decisions/decision-log.md#d-013)), and its tasks are described in the [M1 results](m1-results.md).
+This report records milestone M2: the harness items carried from M0 and M1, the graders, the local store and exporter, and the pilot runs on Target A's three tasks ([schedule](../product/06-scope-and-roadmap.md#4-schedule-to-the-mvp)). Target A is a private B2B SaaS built with Django and Next.js ([D-013](../decisions/decision-log.md#d-013)), and its tasks are described in the [M1 results](m1-results.md).
+
+M2 was reached on 2026-10-26, 29 days before its target date.
 
 ## Progress
 
@@ -15,7 +17,7 @@ This report records milestone M2 as it progresses: the harness items carried fro
 | Graders: static analysis, independent review and human confirmation | Done | 2026-10-26 |
 | Skipped-step flag ([D-051](../decisions/decision-log.md#d-051)) | Done | 2026-10-26 |
 | Phase 0 harness fixes: worktree collection on a timeout, cleanup after a killed job, Collector check before each run | Done | 2026-10-26 |
-| Local store and exporter end to end | Not started | |
+| Local store and exporter end to end | Done | 2026-10-26 |
 
 ## Web tools disabled
 
@@ -89,6 +91,41 @@ On the relay runs so far:
 | M2 pilots, relay on Sonnet, tasks 01 and 03 | No step skipped |
 | M2 pilots, relay on Haiku, tasks 01 and 03 | Halted at the implementation and at tests first; the steps before were done |
 | The Phase 0 Sonnet run with its summary replaced by one that announces nothing | Flagged: both deviations silent |
+
+## Local store and exporter
+
+**Store (ANL-01).** `python -m atr.store.load` rebuilds the DuckDB store from the run folders and the telemetry. M2 added:
+
+- per trial: the target's codename, description and visibility, the task's category and difficulty (from an `atr-task.json` the task builder now writes), the size of the run's product changes, new static findings, review findings, and the skipped-step check;
+- the review findings themselves, with the operator's verdicts from graded sheets, and each run's protocol steps;
+- the `halted` outcome of [D-019](../decisions/decision-log.md#d-019): a relay run that stops itself ends as a successful SDK result, so the store reads relay's orchestrator record and keeps the HALT code as the native outcome;
+- regrades: a run graded again with `harbor job regrade` keeps one row, with the agent's data from the original trial and the grades, changes and review from the latest regrade.
+
+Size metrics count product files only. Relay's working files under `PRPs/` are left out, as they are of the review, so relay and vanilla are compared on the same kind of change.
+
+**Exporter (PUB-01 to PUB-03, PRV-04).** `python -m atr.store.export <out dir> <job>...` copies the selected runs through an allowlist of fields per visibility class ([visibility and privacy](../product/05-visibility-and-privacy.md#2-what-may-be-published)). For a private target, a run carries its metrics, its outcome, the size of its changes and its review findings as counts by category; the task carries its category and difficulty; the target carries its codename and generic description. A leak check then scans the whole export, and any finding blocks it before anything is written:
+
+- private terms from a list kept outside the repository, required when a private target is exported;
+- absolute paths, relative paths with an extension and source file names;
+- secrets and e-mail addresses;
+- long text in a private run.
+
+Each export is recorded in a private publication log with its date, jobs, runs, allowlist version and file digests.
+
+**Test.** The ten pilots were regraded with the current verifiers, reviewed, loaded and exported. The export passed the leak check. With one extra private term that appears in the data, the export was blocked and wrote nothing. With no term list for a private target, it was blocked as well.
+
+| Configuration | Task | Outcome | Reward | Product files · lines added | New static findings | Review findings |
+|---|---|---|---|---|---|---|
+| Vanilla, Sonnet | 01 · 02 · 03 | completed | 1.0 · 1.0 · 1.0 | 7 · 949 / 9 · 936 / 18 · 1,145 | 0 · 0 · 0 | 10 · 10 · 9 |
+| Vanilla, Haiku | 01 · 02 · 03 | completed | 1.0 · 1.0 · 1.0 | 9 · 1,072 / 15 · 1,489 / 24 · 1,813 | 0 · 0 · 0 | 8 · 9 · 8 |
+| Relay, Sonnet | 01 · 03 | completed | 1.0 · 1.0 | 16 · 1,880 / 31 · 2,824 | 0 · 0 | 7 · 8 |
+| Relay, Haiku | 01 · 03 | halted | 0.0 · 0.0 | 6 · 567 / 0 · 0 | 4 · 0 | 8 · 0 |
+
+The review findings are not yet confirmed by a human, so they are not yet evidence of defects.
+
+### Telemetry metrics short of the events
+
+In the reconciliation, the telemetry events of every M2 pilot match the SDK's usage token for token. The cost and token metrics, however, fall 3–7% short on most of them: output tokens of the last requests are missing, as if the final metric batch were lost when the process ends. In Phase 0 all three sources matched, and some M2 runs still match. Cost comes from the events and the SDK ([D-022](../decisions/decision-log.md#d-022)), so the published numbers are unaffected. The metrics stay a third check, and the cause is left for M3.
 
 ## Pilot runs on Target A
 

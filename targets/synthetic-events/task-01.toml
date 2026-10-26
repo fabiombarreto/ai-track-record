@@ -6,6 +6,8 @@
 name = "synthetic-events"
 repository = "~/atr/targets/synthetic-events"
 visibility = "public"
+codename = "synthetic-events"
+description = "Synthetic event-registration API, Django + Django Ninja"
 
 [task]
 id = "task-01"

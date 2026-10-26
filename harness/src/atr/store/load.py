@@ -2,11 +2,19 @@
 
 Usage: python -m atr.store.load [--data-dir <dir>] [--db <file>]
 
-Rebuilds the database from scratch on every run, from two sources under the
+Rebuilds the database from scratch on every run, from these sources under the
 data directory (default $ATR_DATA_DIR or ~/atr/data):
-- jobs/<job>/<trial>/: Harbor's result.json, the runner's agent/result.json
-  and the verifier's changes.patch;
+- jobs/<job>/<trial>/: Harbor's result.json, the runner's agent/result.json,
+  the verifier's rewards and changes.patch, the independent review's
+  review/review.json, and the workflow's own records for the skipped-step
+  check (D-051);
+- the tasks the trials ran: their atr-task.json metadata;
+- confirmations/*/: the operator's graded review sheets and their key.json;
 - telemetry/: the Collector's logs*.jsonl and metrics*.jsonl files.
+
+A trial regraded with `harbor job regrade` keeps one row: the agent's data
+(cost, tokens, time, the workflow's records) comes from the original trial,
+and the grades, the graded changes and the review from its latest regrade.
 
 Telemetry joins to trials on the atr.job and atr.trial resource attributes
 the agent sets. The reconciliation view compares, per trial and model, the
@@ -22,6 +30,8 @@ from pathlib import Path
 
 import duckdb
 
+from atr.checks.skipped_steps import check as check_protocol
+
 SCHEMA = """
 CREATE TABLE trials (
     job TEXT, trial TEXT, task TEXT, config TEXT, model TEXT, agent_version TEXT,
@@ -30,7 +40,20 @@ CREATE TABLE trials (
     reward DOUBLE, criteria_satisfied DOUBLE, existing_tests_pass DOUBLE,
     exception TEXT, changes_patch_bytes BIGINT,
     started_at TIMESTAMP, finished_at TIMESTAMP,
+    target TEXT, codename TEXT, target_description TEXT, visibility TEXT,
+    task_id TEXT, task_title TEXT, difficulty TEXT, category TEXT,
+    files_changed INTEGER, lines_added INTEGER, lines_removed INTEGER,
+    new_static_findings INTEGER, review_completed BOOLEAN, review_findings INTEGER,
+    protocol_checked BOOLEAN, skipped_steps INTEGER, skipped_flagged BOOLEAN,
+    regraded_in TEXT,
     PRIMARY KEY (job, trial)
+);
+CREATE TABLE review_findings (
+    job TEXT, trial TEXT, rank INTEGER, category TEXT, file TEXT, line INTEGER,
+    short_summary TEXT, summary TEXT, failure_scenario TEXT, verdict TEXT
+);
+CREATE TABLE protocol_steps (
+    job TEXT, trial TEXT, phase INTEGER, step TEXT, status TEXT, mentioned BOOLEAN
 );
 CREATE TABLE model_usage (
     job TEXT, trial TEXT, model TEXT,
@@ -131,8 +154,8 @@ def normalize_outcome(exception_type: str | None, subtype: str | None) -> str | 
     """Map Harbor's exception and the SDK's result subtype to D-019's outcomes.
 
     Agents without an SDK result, such as `oracle` and `nop`, get None. A
-    relay HALT ends as a successful SDK result whose text names the HALT
-    code; telling it apart from `completed` waits for a workflow adapter.
+    relay HALT ends as a successful SDK result; load_trials turns it into
+    `halted` from relay's own orchestrator record.
     """
     if exception_type == "AgentTimeoutError":
         return "timed_out"
@@ -147,42 +170,132 @@ def normalize_outcome(exception_type: str | None, subtype: str | None) -> str | 
     return "error"
 
 
-def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path) -> int:
+# Workflow working files, left out of size metrics as they are of the review.
+WORKFLOW_PREFIXES = ("PRPs/",)
+
+
+def diff_size(patch: Path) -> tuple[int | None, int | None, int | None]:
+    """Product files changed, lines added and lines removed by a run's changes."""
+    if not patch.exists():
+        return None, None, None
+    files = added = removed = 0
+    counting = False
+    for line in patch.read_text(errors="replace").splitlines():
+        if line.startswith("diff --git "):
+            path = line.split(" b/", 1)[-1]
+            counting = not path.startswith(WORKFLOW_PREFIXES)
+            files += counting
+        elif not counting:
+            continue
+        elif line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            removed += 1
+    return files, added, removed
+
+
+def load_verdicts(confirmations_dir: Path) -> dict[tuple[str, int], str]:
+    """Operator verdicts by (trial folder, finding rank), from graded sheets."""
+    verdicts = {}
+    for key_file in sorted(confirmations_dir.glob("*/key.json")):
+        for sample_id, trial in read_json(key_file).items():
+            sheet = read_json(key_file.parent / f"{sample_id}.json")
+            for rank, finding in enumerate(sheet.get("findings", [])):
+                if finding.get("verdict"):
+                    verdicts[(trial["trial"], rank)] = finding["verdict"]
+    return verdicts
+
+
+TRIAL_COLUMNS = (
+    "job", "trial", "task", "config", "model", "agent_version", "session_id", "outcome",
+    "native_outcome", "num_turns", "wall_ms", "duration_ms", "duration_api_ms", "cost_usd",
+    "reward", "criteria_satisfied", "existing_tests_pass", "exception", "changes_patch_bytes",
+    "started_at", "finished_at", "target", "codename", "target_description", "visibility",
+    "task_id", "task_title", "difficulty", "category", "files_changed", "lines_added",
+    "lines_removed", "new_static_findings", "review_completed", "review_findings",
+    "protocol_checked", "skipped_steps", "skipped_flagged", "regraded_in",
+)
+
+
+def latest_regrades(jobs_dir: Path) -> dict[str, Path]:
+    """The latest regrade of each regraded trial, by the original trial's folder."""
+    latest: dict[str, tuple[str, Path]] = {}
+    for config_file in sorted(jobs_dir.glob("*/*/config.json")):
+        source = (read_json(config_file).get("source_trial") or {})
+        result = read_json(config_file.parent / "result.json")
+        if source.get("action") != "regrade" or not source.get("path") or not result:
+            continue
+        finished = result.get("finished_at") or ""
+        key = str(Path(source["path"]).resolve())
+        if key not in latest or finished > latest[key][0]:
+            latest[key] = (finished, config_file.parent)
+    return {key: trial for key, (_, trial) in latest.items()}
+
+
+def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path, verdicts: dict) -> int:
+    regrades = latest_regrades(jobs_dir)
     count = 0
     for result_file in sorted(jobs_dir.glob("*/*/result.json")):
         trial_dir = result_file.parent
         result = read_json(result_file)
-        if "trial_name" not in result:
-            continue
+        if "trial_name" not in result or (result.get("config") or {}).get("source_trial"):
+            continue  # regrades are folded into the trial they regraded
         agent = read_json(trial_dir / "agent" / "result.json")
-        rewards = (result.get("verifier_result") or {}).get("rewards") or {}
-        kwargs = result["config"]["agent"].get("kwargs") or {}
-        patch = trial_dir / "verifier" / "changes.patch"
+        graded_dir = regrades.get(str(trial_dir.resolve()), trial_dir)
+        graded = read_json(graded_dir / "result.json") if graded_dir != trial_dir else result
+        rewards = (graded.get("verifier_result") or {}).get("rewards") or {}
+        agent_config = result["config"].get("agent") or {}
+        kwargs = agent_config.get("kwargs") or {}
+        task_path = (result["config"].get("task") or {}).get("path")
+        task = read_json(Path(task_path) / "atr-task.json") if task_path else {}
+        patch = graded_dir / "verifier" / "changes.patch"
+        files, added, removed = diff_size(patch)
+        review = read_json(graded_dir / "review" / "review.json")
+        protocol = check_protocol(trial_dir) if (trial_dir / "config.json").exists() else {}
         exception = result.get("exception_info")
         exception_type = exception.get("exception_type") if exception else None
+        outcome = normalize_outcome(exception_type, agent.get("subtype"))
+        native = agent.get("subtype")
+        halt = protocol.get("orchestrator_outcome")
+        if outcome == "completed" and halt and not str(halt).upper().startswith("ALL_PHASES"):
+            # A relay HALT ends as a successful SDK result.
+            outcome, native = "halted", halt
         job, trial = trial_dir.parent.name, trial_dir.name
+        static = rewards.get("new_static_findings")
+        applies = bool(protocol.get("applies"))
+        row = {
+            "job": job, "trial": trial, "task": result.get("task_name"),
+            "config": kwargs.get("config_label"), "model": agent_config.get("model_name"),
+            "agent_version": (result.get("agent_info") or {}).get("version"),
+            "session_id": agent.get("session_id"), "outcome": outcome, "native_outcome": native,
+            # Results written before the runner's atr_ fields count only the
+            # last segment's turns.
+            "num_turns": agent.get("atr_num_turns", agent.get("num_turns")),
+            "wall_ms": agent.get("atr_wall_ms"), "duration_ms": agent.get("duration_ms"),
+            "duration_api_ms": agent.get("duration_api_ms"),
+            "cost_usd": agent.get("total_cost_usd"),
+            "reward": rewards.get("reward"), "criteria_satisfied": rewards.get("criteria_satisfied"),
+            "existing_tests_pass": rewards.get("existing_tests_pass"), "exception": exception_type,
+            "changes_patch_bytes": patch.stat().st_size if patch.exists() else None,
+            "started_at": result.get("started_at"), "finished_at": result.get("finished_at"),
+            "target": task.get("target"), "codename": task.get("codename"),
+            "target_description": task.get("target_description"),
+            "visibility": task.get("visibility"), "task_id": task.get("task_id"),
+            "task_title": task.get("title"), "difficulty": task.get("difficulty"),
+            "category": task.get("category"),
+            "files_changed": files, "lines_added": added, "lines_removed": removed,
+            "new_static_findings": None if static is None else int(static),
+            "review_completed": review.get("completed") if review else None,
+            "review_findings": review.get("n_findings") if review else None,
+            "protocol_checked": applies,
+            "skipped_steps": len(protocol["skipped"]) if applies else None,
+            "skipped_flagged": protocol["flagged"] if applies else None,
+            "regraded_in": graded_dir.parent.name if graded_dir != trial_dir else None,
+        }
         con.execute(
-            f"INSERT INTO trials VALUES ({', '.join('?' * 21)})",
-            [
-                job, trial, result.get("task_name"),
-                kwargs.get("config_label"),
-                result["config"]["agent"].get("model_name"),
-                (result.get("agent_info") or {}).get("version"),
-                agent.get("session_id"),
-                normalize_outcome(exception_type, agent.get("subtype")),
-                agent.get("subtype"),
-                # Results written before the runner's atr_ fields count only
-                # the last segment's turns.
-                agent.get("atr_num_turns", agent.get("num_turns")),
-                agent.get("atr_wall_ms"),
-                agent.get("duration_ms"), agent.get("duration_api_ms"),
-                agent.get("total_cost_usd"),
-                rewards.get("reward"), rewards.get("criteria_satisfied"),
-                rewards.get("existing_tests_pass"),
-                exception_type,
-                patch.stat().st_size if patch.exists() else None,
-                result.get("started_at"), result.get("finished_at"),
-            ],
+            f"INSERT INTO trials ({', '.join(TRIAL_COLUMNS)}) "
+            f"VALUES ({', '.join('?' * len(TRIAL_COLUMNS))})",
+            [row[column] for column in TRIAL_COLUMNS],
         )
         usage = agent.get("model_usage") or agent.get("modelUsage") or {}
         for model, u in usage.items():
@@ -193,6 +306,21 @@ def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path) -> int:
                     u.get("cacheReadInputTokens"), u.get("cacheCreationInputTokens"),
                     u.get("costUSD"),
                 ],
+            )
+        for rank, finding in enumerate(review.get("findings", []) if review else []):
+            con.execute(
+                "INSERT INTO review_findings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    job, trial, rank, finding.get("category"), finding.get("file"),
+                    finding.get("line"), finding.get("short_summary"), finding.get("summary"),
+                    finding.get("failure_scenario"),
+                    verdicts.get((str(graded_dir.resolve()), rank)),
+                ],
+            )
+        for step in protocol.get("steps", []) if applies else []:
+            con.execute(
+                "INSERT INTO protocol_steps VALUES (?, ?, ?, ?, ?, ?)",
+                [job, trial, step["phase"], step["step"], step["status"], step.get("mentioned")],
             )
         count += 1
     return count
@@ -263,7 +391,8 @@ def main() -> None:
     db.unlink(missing_ok=True)
     con = duckdb.connect(str(db))
     con.execute(SCHEMA)
-    trials = load_trials(con, args.data_dir / "jobs")
+    verdicts = load_verdicts(args.data_dir / "confirmations")
+    trials = load_trials(con, args.data_dir / "jobs", verdicts)
     events = load_events(con, args.data_dir / "telemetry")
     points = load_metrics(con, args.data_dir / "telemetry")
     print(f"{db}: {trials} trials, {events} events, {points} metric points")
