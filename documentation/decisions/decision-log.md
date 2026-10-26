@@ -1,6 +1,6 @@
 # Decision log
 
-> **Status:** Draft · **Last updated:** 2026-10-25 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-10-26 · **Owner:** Fabio Martins Barreto
 
 Every product decision and its status:
 
@@ -65,6 +65,8 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 | [D-049](#d-049) | Runs go through the Agent SDK, paid with the Max plan's API credits | Accepted |
 | [D-050](#d-050) | Network for Target A runs: the model API and the package index, no web tools | Accepted |
 | [D-051](#d-051) | Skipped workflow steps are flagged, not scored | Accepted |
+| [D-052](#d-052) | Target A keeps relay's test-first methodology | Accepted |
+| [D-053](#d-053) | Tasks stay frozen; configurations are compared beyond the oracle | Accepted |
 
 ## Decisions
 
@@ -298,6 +300,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Why:** It covers the central estimate for the frozen scope ([D-024](#d-024)), about US$ 600, with a margin of about a third. It does not cover the heavy-run scenario, up to about US$ 1,340; the pilot runs show which scenario applies. See the [estimates](../product/06-scope-and-roadmap.md#8-effort-and-cost-estimates).
 - **Consequences:** The per-experiment cap ([EXP-03](../product/03-capabilities.md#3-experiments)) is set from this ceiling. If the pilot runs show that the 45 runs will not fit, the ceiling is revisited at M0; reducing the frozen scope would need a new decision. The Phase 2 budget is [D-044](#d-044). From [D-049](#d-049), the Max plan's included API credits (US$ 100 a month) pay first, and purchased credits pay the rest, up to the ceiling.
 - **M0 re-evaluation (2026-10-23):** the ceiling stays at US$ 800, and the MVP now also has a **target of US$ 400**. The target is a goal, not a limit: if the runs need more, spend may pass it, up to the ceiling. The Phase 0 pilots put the five configurations at about US$ 12 per task and repetition on the synthetic task, so the 45 runs would cost about US$ 105 at that size. The US$ 400 target holds for Target A tasks up to about three times that size, and the ceiling up to about six times. The estimate is checked again at M2 with the pilot runs on Target A's tasks ([Phase 0 results](../research/phase-0-results.md#m0-review)).
+- **M2 check (2026-10-26):** the pilots on Target A put the five configurations at about US$ 52 per task and repetition, so the 45 runs would cost about US$ 470, or about US$ 520 with retries. That passes the US$ 400 target and stays under the ceiling, which this decision allows; the scope stays as it is ([M2 results](../research/m2-results.md#budget-check)).
 
 ### D-029
 
@@ -530,3 +533,27 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Consequences:**
   - This adds a small capability to the frozen MVP scope ([D-024](#d-024)): a check per run that reads the workflow's own records. For relay these are `orchestrator-run.json` and its final summary. The flag shows in the run explorer next to the grades.
   - Vanilla has no protocol, so it has nothing to flag.
+
+### D-052
+
+**Target A keeps relay's test-first methodology**
+
+- **Status:** Accepted, 2026-10-25
+- **Decision:** Target A's relay context keeps `tdd: true`, as frozen in the task bases ([D-014](#d-014)). Relay runs its test-first track on Target A in every relay configuration. When relay halts inside that track, the run is graded as it ends, and the halt is recorded as a finding.
+- **Why:**
+  - The operator declared test-driven development for Target A when the first base was frozen. Changing it now would change the three frozen bases.
+  - The M2 pilots found that relay 0.47.0's test-first track halts on Haiku at two points: the test writer refuses a plan the plan reviewer approved, and the code reviewer's test guard blocks the approved test files. Relay on Sonnet got past both by improvising and said so ([M2 results](../research/m2-results.md#relays-test-first-track-halts-on-haiku)).
+  - Measuring the workflow as it behaves on a project that declares TDD is the point of the benchmark. A fix belongs to a later relay release, which can then be compared.
+- **Consequences:** The smaller-model configuration may score low for reasons inside relay's protocol rather than the model's ability. The write-up has to say so, using vanilla on Haiku, which met every criterion, as the evidence.
+
+### D-053
+
+**Tasks stay frozen; configurations are compared beyond the oracle**
+
+- **Status:** Accepted, 2026-10-25
+- **Decision:** Target A's three tasks stay as frozen at M1. The hidden oracle stays the primary correctness check ([D-015](#d-015)), but the comparison between configurations rests also on cost, time, workflow robustness (halts and announced deviations, [D-051](#d-051)) and the quality graders of the MVP scope: static analysis and the independent review ([D-018](#d-018)). Those graders become central work in M2.
+- **Why:** In the M2 pilots, vanilla met every criterion of all three tasks on both Sonnet and Haiku, in minutes. The specifications are precise enough that a strong model needs no workflow to pass the oracle ([M2 results](../research/m2-results.md#precise-specifications-make-the-tasks-easy-for-a-strong-model)). Rewriting them would reopen M1, and relay's PRD flow tends to produce precise specifications anyway.
+- **Consequences:**
+  - The headline question "Is the workflow worth its cost?" is answered with cost, time and quality, not with the success rate alone.
+  - The static analysis and independent review graders move to the front of M2.
+  - Harder tasks remain a candidate for Phase 2, which already plans about five tasks ([roadmap](../product/06-scope-and-roadmap.md#5-phase-2-credibility-and-breadth)).

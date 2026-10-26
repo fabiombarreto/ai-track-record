@@ -37,6 +37,7 @@ Evidence gathered to support specific decisions.
 | [Phase 0 tooling](research/phase-0-tooling.md) | The runner, the observability stack and the local store ([D-030](decisions/decision-log.md#d-030), [D-032](decisions/decision-log.md#d-032), [D-033](decisions/decision-log.md#d-033)) |
 | [Phase 0 results](research/phase-0-results.md) | What each Phase 0 work package found, and the status of every check |
 | [M1 results](research/m1-results.md) | Target A's scaffold, its three tasks and how their hidden oracles were validated |
+| [M2 results](research/m2-results.md) | The harness work of M2 and the pilot runs on Target A, with their costs and findings |
 
 ## Conventions
 

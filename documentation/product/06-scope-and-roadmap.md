@@ -1,6 +1,6 @@
 # Scope, roadmap and risks
 
-> **Status:** Draft · **Last updated:** 2026-10-25 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-10-26 · **Owner:** Fabio Martins Barreto
 
 AI Track Record is a bounded study that becomes a maintained benchmark ([D-039](../decisions/decision-log.md#d-039)). The MVP target date is the first week of December 2026 ([D-042](../decisions/decision-log.md#d-042)); if the MVP runs late, the date moves and the scope does not ([D-043](../decisions/decision-log.md#d-043)). The MVP scope is accepted and frozen ([D-024](../decisions/decision-log.md#d-024)). Phases 2 and 3 as a whole are still a **proposal**, although some Phase 2 items are already accepted decisions ([D-012](../decisions/decision-log.md#d-012), [D-021](../decisions/decision-log.md#d-021), [D-023](../decisions/decision-log.md#d-023)). The MVP budget is capped at US$ 800, with a target of US$ 400 set at M0 ([D-028](../decisions/decision-log.md#d-028)); the Phase 2 budget is open ([D-044](../decisions/decision-log.md#d-044)).
 
@@ -156,7 +156,7 @@ Order-of-magnitude estimates from the planning analysis of 2026-10-19. They assu
 
 Machine time is the sum of run durations; running two or three runs in parallel shortens the calendar time.
 
-**MVP budget ceiling:** US$ 800, including pilot runs and retries ([D-028](../decisions/decision-log.md#d-028)). It covers the central estimate with a margin of about a third, but not the heavy-run scenario. **Target, set at M0:** US$ 400. It is a goal that spend may pass, up to the ceiling. The Phase 0 pilots put the 45 runs at about US$ 105 if Target A's tasks were the size of the synthetic task ([M0 review](../research/phase-0-results.md#m0-review)). The Max plan's included API credits, US$ 100 a month, pay first ([D-049](../decisions/decision-log.md#d-049)).
+**MVP budget ceiling:** US$ 800, including pilot runs and retries ([D-028](../decisions/decision-log.md#d-028)). It covers the central estimate with a margin of about a third, but not the heavy-run scenario. **Target, set at M0:** US$ 400. It is a goal that spend may pass, up to the ceiling. The Phase 0 pilots put the 45 runs at about US$ 105 if Target A's tasks were the size of the synthetic task ([M0 review](../research/phase-0-results.md#m0-review)). The M2 pilots on Target A's tasks raise that to about US$ 470, or about US$ 520 with retries: above the target, under the ceiling ([M2 budget check](../research/m2-results.md#budget-check)). The Max plan's included API credits, US$ 100 a month, pay first ([D-049](../decisions/decision-log.md#d-049)).
 
 Ways to keep spend down:
 
