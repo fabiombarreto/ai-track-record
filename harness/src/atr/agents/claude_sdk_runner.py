@@ -16,6 +16,7 @@ import asyncio
 import dataclasses
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -54,6 +55,7 @@ def build_options(args: argparse.Namespace) -> ClaudeAgentOptions:
         "max_budget_usd": args.max_budget_usd,
         "plugins": [{"type": "local", "path": args.plugin_dir}] if args.plugin_dir else None,
         "extra_args": {"session-id": args.session_id} if args.session_id else None,
+        "disallowed_tools": args.disallowed_tools or None,
     }
     requested = {key: value for key, value in requested.items() if value is not None}
     supported = {field.name for field in dataclasses.fields(ClaudeAgentOptions)}
@@ -80,37 +82,53 @@ def trust_workspace(workspace: Path) -> None:
     config_file.write_text(json.dumps(config, indent=2))
 
 
+def copy_worktree_changes(repo: Path, worktree: Path) -> dict:
+    """Copy every file the worktree changed against "base" over the main tree.
+
+    The worktree wins: a workflow may also write some of the same files in the
+    main tree, such as its own reports, which would make a patch fail to apply.
+    """
+    subprocess.run(["git", "-C", str(worktree), "add", "-A"], check=True)
+    changes = subprocess.run(
+        ["git", "-C", str(worktree), "diff", "--cached", "--name-status", "--no-renames", "-z", "base"],
+        check=True,
+        capture_output=True,
+    ).stdout.decode()
+    fields = changes.split("\0")
+    copied, deleted = 0, 0
+    for status, path in zip(fields[0::2], fields[1::2], strict=False):
+        target = repo / path
+        if status == "D":
+            if target.is_file() or target.is_symlink():
+                target.unlink()
+                deleted += 1
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        shutil.copy2(worktree / path, target, follow_symlinks=False)
+        copied += 1
+    return {"copied": copied, "deleted": deleted}
+
+
 def collect_worktrees(repo: Path, output_dir: Path) -> None:
-    """Apply changes left in git worktrees under .worktrees/ to the main tree.
+    """Bring changes left in git worktrees under .worktrees/ into the main tree.
 
     Workflows such as relay work in a worktree and leave it uncommitted. The
-    grader reads the main tree's diff against the "base" tag, so the
-    worktree's diff against the same tag is applied there. The outcome of
-    each worktree is recorded in worktrees.json.
+    grader reads the main tree's diff against the "base" tag, so every file the
+    worktree changed against the same tag is copied there. The outcome of each
+    worktree is recorded in worktrees.json.
     """
     root = repo / ".worktrees"
     worktrees = sorted(p for p in root.glob("*") if (p / ".git").exists()) if root.exists() else []
     report = []
     for worktree in worktrees:
-        subprocess.run(["git", "-C", str(worktree), "add", "-A"], check=True)
-        diff = subprocess.run(
-            ["git", "-C", str(worktree), "diff", "--cached", "--binary", "base"],
-            check=True,
-            capture_output=True,
-        ).stdout
-        applied = subprocess.run(
-            ["git", "-C", str(repo), "apply", "--whitespace=nowarn", "-"],
-            input=diff,
-            capture_output=True,
-        )
-        report.append(
-            {
-                "worktree": str(worktree.relative_to(repo)),
-                "patch_bytes": len(diff),
-                "applied": applied.returncode == 0,
-                "error": applied.stderr.decode()[-2000:],
-            }
-        )
+        entry = {"worktree": str(worktree.relative_to(repo))}
+        try:
+            entry |= copy_worktree_changes(repo, worktree) | {"applied": True, "error": ""}
+        except (OSError, subprocess.CalledProcessError) as error:
+            entry |= {"applied": False, "error": str(error)[-2000:]}
+        report.append(entry)
     (output_dir / "worktrees.json").write_text(json.dumps(report, indent=2))
     print(f"[atr] worktrees collected: {report}")
 
@@ -167,6 +185,9 @@ def main() -> int:
     parser.add_argument("--cwd")
     parser.add_argument("--collect-worktrees", action="store_true")
     parser.add_argument("--session-id")
+    parser.add_argument(
+        "--disallowed-tool", dest="disallowed_tools", action="append", default=[]
+    )
     return asyncio.run(run(parser.parse_args()))
 
 

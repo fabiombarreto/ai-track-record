@@ -62,6 +62,10 @@ class ClaudeAgentSdkOptions(InstalledAgentOptions):
         default=None,
         description="Name of the benchmark configuration, recorded on the telemetry.",
     )
+    disallowed_tools: list[str] = Field(
+        default_factory=list,
+        description="Tools removed from the agent and its sub-agents, such as WebSearch (D-050).",
+    )
 
 
 class ClaudeAgentSdk(BaseInstalledAgent):
@@ -218,6 +222,8 @@ class ClaudeAgentSdk(BaseInstalledAgent):
             args += ["--cwd", self.options.cwd]
         if self.options.collect_worktrees:
             args += ["--collect-worktrees"]
+        for tool in self.options.disallowed_tools:
+            args += ["--disallowed-tool", tool]
         args += ["--session-id", self._session_id()]
 
         command = (
