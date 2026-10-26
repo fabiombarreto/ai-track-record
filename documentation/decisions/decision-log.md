@@ -216,6 +216,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Status:** Accepted, 2026-10-20, with the MVP scope ([D-024](#d-024)). Proposed 2026-10-19.
 - **Decision:** Every run is reviewed by a pinned code reviewer that is not part of the workflow under test, for example Claude Code's built-in code review at a fixed effort level and model. The reviewer is the same for every configuration of an experiment, and a human confirms findings on a sample of runs.
 - **Why:** In relay's recorded evaluation, an independent review found confirmed defects in deliveries that relay's own reviewers had approved.
+- **M2 choices (2026-10-26):** the reviewer is Claude Code's built-in `/code-review` at effort `high` on Sonnet 5.5, through the Agent SDK pinned for the runs. It reviews the run's graded changes without relay's working files under `PRPs/`. The operator confirms findings blind on one run per configuration and task ([M2 results](../research/m2-results.md#independent-review-grd-04)).
 
 ### D-019
 

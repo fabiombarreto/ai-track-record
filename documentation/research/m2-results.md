@@ -12,7 +12,7 @@ This report records milestone M2 as it progresses: the harness items carried fro
 | Worktree collection that survives files the workflow also writes in the main tree | Done | 2026-10-25 |
 | Pilot runs on Target A | Done | 2026-10-26 |
 | Budget check with the pilot costs ([D-028](../decisions/decision-log.md#d-028)) | Done | 2026-10-26 |
-| Graders: static analysis and independent review | Not started | |
+| Graders: static analysis, independent review and human confirmation | Done | 2026-10-26 |
 | Skipped-step flag ([D-051](../decisions/decision-log.md#d-051)) | Not started | |
 | Phase 0 harness fixes: worktree collection on a timeout, cleanup after a killed job, Collector check before each run | Done | 2026-10-26 |
 | Local store and exporter end to end | Not started | |
@@ -45,6 +45,30 @@ Three gaps found in Phase 0 ([follow-ups](phase-0-results.md#follow-ups)) are cl
 | A run started while the Collector is down loses its telemetry without notice | Before the runner starts, the agent sends an empty OTLP request from the task container to the Collector. Anything but HTTP 200 fails the trial with a clear error, before any API call. An empty request records nothing | With the Collector stopped, the trial failed with "telemetry Collector … did not answer" and made no API call. With it running, the same trial passed |
 
 The synthetic task and Target A's task 03 still score 1.0 with `oracle` after the change.
+
+## Quality graders
+
+[D-053](../decisions/decision-log.md#d-053) made these graders central, since the oracle alone does not separate the configurations.
+
+### Static analysis (GRD-03)
+
+The grader runs the static analysis tools a task declares (`task.static_analysis` in the manifest) on the base and on the run, inside the verifier. It counts the findings the run introduced as `new_static_findings` in `reward.json` and lists them in `details.json`. Findings are matched by file, rule and message, not by line, since the run moves lines around. Static analysis never changes the reward.
+
+Target A's tasks declare `ruff`, with the project's own configuration. On task 01, the reference solution and the pilot changes of vanilla and relay on Sonnet each introduced no finding: both agents ran `ruff` themselves. A copy of the reference solution with an unused import and an unused variable added produced those two findings, plus the import-order findings the misplaced import causes.
+
+### Independent review (GRD-04)
+
+`python -m atr.review.run <trial> --task <task>` reviews one graded run with a pinned reviewer that belongs to no workflow ([D-018](../decisions/decision-log.md#d-018)):
+
+- **Reviewer:** Claude Code's built-in `/code-review` at effort `high`, on Sonnet 5.5, through the same pinned Agent SDK as the runs (0.2.170), in its own container with web tools disabled.
+- **What it reviews:** the run's graded changes (the verifier's `changes.patch`) applied to a clean copy of the base commit. Relay's working files under `PRPs/` are left out, so relay and vanilla are reviewed on the same kind of change. The specification in the base stays readable as context.
+- **Output:** a second turn in the same session asks the reviewer to report the findings it listed through its `ReportFindings` tool, so each finding comes back as data: file, line, category, summary and failure scenario. They are written to `review/review.json` in the trial folder, with the reviewer's transcript. A run with no changes is not sent to the model.
+
+On task 01 the reviewer listed ten findings for vanilla on Sonnet and ten for relay on Sonnet, several of them the same in both, which suggests a consistent reviewer. Some findings flag behavior that the specification requires, for example clearing the draft on submission. Such false positives are what the human confirmation filters out. A review costs up to about US$ 0.40, so about US$ 18 for the 45 MVP runs.
+
+### Human confirmation (GRD-05)
+
+`python -m atr.review.confirm sample <dir> <jobs>...` picks one reviewed run per configuration and task at random, 15 of the 45 MVP runs. For each it writes a sheet with the task and the findings, and no hint of the configuration, so the operator grades blind (part of GRD-08). The operator marks each finding `confirmed` or `rejected`. `python -m atr.review.confirm summary <dir>` then reports the confirmed share per configuration.
 
 ## Pilot runs on Target A
 

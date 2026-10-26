@@ -13,6 +13,8 @@ Optional manifest keys:
   monorepos (default: the repository root).
 - task.test_support: files from the base ref, such as a conftest.py, copied to
   the grading root so that both the existing and the hidden tests use them.
+- task.static_analysis: tools the grader runs on the base and on the run to
+  count the findings the run introduced, for example ["ruff"].
 - network.agent_allowed_hosts and network.verifier_allowed_hosts: Harbor's
   network allowlist for each phase (default: an open network).
 """
@@ -140,7 +142,11 @@ def build(manifest_path: Path, out_root: Path) -> Path:
         write(grading / "existing" / Path(path).name, git(repo, "show", f"{base}:{path}"))
     for path in task.get("test_support", []):
         write(grading / Path(path).name, git(repo, "show", f"{base}:{path}"))
-    grading_config = {"criteria": task["criteria"], "project_dir": task.get("project_dir", ".")}
+    grading_config = {
+        "criteria": task["criteria"],
+        "project_dir": task.get("project_dir", "."),
+        "static_analysis": task.get("static_analysis", []),
+    }
     write(grading / "task.json", json.dumps(grading_config, indent=2))
 
     excluded = [f":(exclude){path}" for path in task["hidden_tests"]]

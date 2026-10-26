@@ -16,6 +16,9 @@ Writes /logs/verifier/reward.json:
 - reward: 1.0 when every hidden and existing test passes, otherwise 0.0
 - criteria_satisfied: share of acceptance criteria whose tests all pass
 - existing_tests_pass: 1.0 when every existing test still passes
+- new_static_findings: findings of the task's static analysis tools that the
+  run introduced (only when the task declares tools); the list is in
+  details.json
 """
 
 import json
@@ -24,6 +27,7 @@ import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+from collections import Counter
 from pathlib import Path
 
 APP = Path("/app")
@@ -108,6 +112,45 @@ def prepare_workspace(changes: str, project: Path) -> None:
         raise RuntimeError(f"dependencies do not install: {synced.stderr[-2000:]}")
 
 
+def ruff_findings(project: Path) -> list[dict]:
+    """Findings of ruff with the project's own configuration."""
+    result = run(
+        ["ruff", "check", "--output-format", "json", "--no-cache", "--exit-zero", "."], cwd=project
+    )
+    if result.returncode:
+        raise RuntimeError(f"ruff failed: {result.stderr[-1000:]}")
+    return [
+        {
+            "file": str(Path(finding["filename"]).relative_to(project)),
+            "rule": finding["code"] or "syntax-error",
+            "message": finding["message"],
+            "line": finding["location"]["row"],
+        }
+        for finding in json.loads(result.stdout or "[]")
+    ]
+
+
+ANALYZERS = {"ruff": ruff_findings}
+
+
+def new_static_findings(tools: list[str], base: Path, after: Path) -> list[dict]:
+    """Findings present after the run and absent on the base commit.
+
+    Findings are matched by file, rule and message, not by line, since the
+    run's changes move lines around.
+    """
+    new = []
+    for tool in tools:
+        before = Counter((f["file"], f["rule"], f["message"]) for f in ANALYZERS[tool](base))
+        for finding in ANALYZERS[tool](after):
+            key = (finding["file"], finding["rule"], finding["message"])
+            if before[key]:
+                before[key] -= 1
+            else:
+                new.append({"tool": tool, **finding})
+    return new
+
+
 def run_tests(project: Path) -> list[dict]:
     junit = OUT / "junit.xml"
     result = run(
@@ -182,6 +225,15 @@ def main() -> None:
         rewards = result
     except Exception as error:  # every failure still produces a reward
         details["error"] = str(error)
+    tools = config.get("static_analysis") or []
+    if tools and "error" not in details:
+        try:
+            base = PRISTINE / config.get("project_dir", ".")
+            findings = new_static_findings(tools, base, project)
+            details["new_static_findings"] = findings
+            rewards["new_static_findings"] = float(len(findings))
+        except Exception as error:  # static analysis never changes the reward
+            details["static_analysis_error"] = str(error)
     (OUT / "reward.json").write_text(json.dumps(rewards, indent=2))
     (OUT / "details.json").write_text(json.dumps(details, indent=2))
     print(json.dumps(rewards))
