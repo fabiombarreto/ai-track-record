@@ -13,7 +13,7 @@ This report records milestone M2 as it progresses: the harness items carried fro
 | Pilot runs on Target A | Done | 2026-10-26 |
 | Budget check with the pilot costs ([D-028](../decisions/decision-log.md#d-028)) | Done | 2026-10-26 |
 | Graders: static analysis, independent review and human confirmation | Done | 2026-10-26 |
-| Skipped-step flag ([D-051](../decisions/decision-log.md#d-051)) | Not started | |
+| Skipped-step flag ([D-051](../decisions/decision-log.md#d-051)) | Done | 2026-10-26 |
 | Phase 0 harness fixes: worktree collection on a timeout, cleanup after a killed job, Collector check before each run | Done | 2026-10-26 |
 | Local store and exporter end to end | Not started | |
 
@@ -69,6 +69,26 @@ On task 01 the reviewer listed ten findings for vanilla on Sonnet and ten for re
 ### Human confirmation (GRD-05)
 
 `python -m atr.review.confirm sample <dir> <jobs>...` picks one reviewed run per configuration and task at random, 15 of the 45 MVP runs. For each it writes a sheet with the task and the findings, and no hint of the configuration, so the operator grades blind (part of GRD-08). The operator marks each finding `confirmed` or `rejected`. `python -m atr.review.confirm summary <dir>` then reports the confirmed share per configuration.
+
+## Skipped-step flag (GRD-09)
+
+`python -m atr.checks.skipped_steps <trial>...` records, for each relay run, which steps of relay's own protocol each phase skipped and whether the final summary mentions them ([D-051](../decisions/decision-log.md#d-051)). It writes `checks/skipped_steps.json` in the trial folder. A step skipped without mention raises a flag for human review. The flag never enters a grade, and vanilla has no protocol to check.
+
+- **Steps checked, per phase:** the plan with its review, the worktree, tests first (when the project declares `tdd: true`), the implementation with its code review, the docs sync (when `docs_sync: true`), tests after (when `tdd: false`), the test run and the test review. The project's flags come from the methodology file in the base.
+- **Evidence:** the step's entry in relay's `orchestrator-run.json`, where the last attempt decides, or the record the step leaves, such as the docs sync manifest. Relay does not log every step in every run, so both sources are needed. A worktree fallback counts as a deviation.
+- **Halts:** a phase that halted is checked only up to the step where it stopped, which is marked as the halt, not as a skip.
+- **"Mentioned"** is a keyword match on the summary, which is why the result is a flag to review and not a verdict.
+- **Not checked:** steps inside a step, such as relay's web research, which [D-050](../decisions/decision-log.md#d-050) removes from every relay run on Target A.
+
+On the relay runs so far:
+
+| Run | Result |
+|---|---|
+| Phase 0, relay on Sonnet | Worktree deviated and docs sync skipped, both announced: no flag, as [D-051](../decisions/decision-log.md#d-051) describes |
+| Phase 0, relay on Haiku (two runs) | No step skipped |
+| M2 pilots, relay on Sonnet, tasks 01 and 03 | No step skipped |
+| M2 pilots, relay on Haiku, tasks 01 and 03 | Halted at the implementation and at tests first; the steps before were done |
+| The Phase 0 Sonnet run with its summary replaced by one that announces nothing | Flagged: both deviations silent |
 
 ## Pilot runs on Target A
 

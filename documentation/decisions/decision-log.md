@@ -534,6 +534,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Consequences:**
   - This adds a small capability to the frozen MVP scope ([D-024](#d-024)): a check per run that reads the workflow's own records. For relay these are `orchestrator-run.json` and its final summary. The flag shows in the run explorer next to the grades.
   - Vanilla has no protocol, so it has nothing to flag.
+- **M2 outcome (2026-10-26):** the check reads relay's orchestrator log and the records its steps leave, checks each phase up to any halt, and matches skipped steps against the final summary by keyword ([M2 results](../research/m2-results.md#skipped-step-flag-grd-09)).
 
 ### D-052
 
