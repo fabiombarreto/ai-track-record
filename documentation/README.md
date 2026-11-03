@@ -27,6 +27,8 @@ Execution plans, one per phase.
 | Document | What it covers |
 |---|---|
 | [Phase 0 plan](plans/phase-0.md) | The feasibility spike up to milestone M0: environment, Harbor, the synthetic task, adapters and telemetry |
+| [Google models plan](plans/google-models.md) | Running relay and vanilla on Gemini through a local gateway, outside the MVP, and comparing the metrics with the Claude runs (deferred, [D-056](decisions/decision-log.md#d-056)) |
+| [Local models plan](plans/local-models.md) | Running vanilla, and one relay probe, on open-weight models served on the operator's machine, outside the MVP, and comparing the metrics with the Claude runs (taken up, [D-058](decisions/decision-log.md#d-058)) |
 
 ## Research
 

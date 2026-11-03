@@ -1,6 +1,6 @@
 # Decision log
 
-> **Status:** Draft · **Last updated:** 2026-10-26 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-11-03 · **Owner:** Fabio Martins Barreto
 
 Every product decision and its status:
 
@@ -44,7 +44,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 | [D-028](#d-028) | MVP budget ceiling: US$ 800 | Accepted |
 | [D-029](#d-029) | Allowed providers for Target A: Anthropic only | Accepted |
 | [D-030](#d-030) | Runner: adopt Harbor | Accepted |
-| [D-031](#d-031) | Route to non-Anthropic and open-weight models | Open |
+| [D-031](#d-031) | Route to non-Anthropic and open-weight models | Proposed |
 | [D-032](#d-032) | Observability: native OpenTelemetry into a local store, MLflow as optional viewer | Accepted |
 | [D-033](#d-033) | Local store: DuckDB over immutable run folders | Accepted |
 | [D-034](#d-034) | Dashboard hosting and domain | Open |
@@ -67,6 +67,11 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 | [D-051](#d-051) | Skipped workflow steps are flagged, not scored | Accepted |
 | [D-052](#d-052) | Target A keeps relay's test-first methodology | Accepted |
 | [D-053](#d-053) | Tasks stay frozen; configurations are compared beyond the oracle | Accepted |
+| [D-054](#d-054) | MVP relay releases: 0.49.0 as current, 0.47.0 as earlier | Accepted |
+| [D-055](#d-055) | Allowed providers for Target A: add Google's paid Gemini API? | Open |
+| [D-056](#d-056) | Gemini experiment deferred; its plan is kept for later | Accepted |
+| [D-057](#d-057) | Target A on open-weight models running on the operator's machine | Accepted |
+| [D-058](#d-058) | Local models experiment, outside the frozen MVP | Accepted |
 
 ## Decisions
 
@@ -311,6 +316,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Decision:** Target A's code and specifications may be sent only to Anthropic models, through the API. Sonnet and Haiku are the preferred models.
 - **Why:** The MVP uses only Anthropic models, and the API's commercial terms exclude training on submitted content ([D-026](#d-026)).
 - **Consequences:** Target A's tasks can be prepared and run from M1 on. The preference does not change the frozen MVP scope: its Opus configuration stays ([D-024](#d-024)). Models from other providers ([D-031](#d-031)) can only be evaluated on public targets unless this decision is revisited.
+- **Note (2026-11-03):** [D-057](#d-057) also allows open-weight models running on the operator's machine, under its conditions. No other provider is added.
 
 ### D-030
 
@@ -331,11 +337,14 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 
 **Route to non-Anthropic and open-weight models**
 
-- **Status:** Open
+- **Status:** Proposed, 2026-11-02. Open since 2026-10-20.
 - **Question:** How does the harness reach models from other providers and open-weight models?
 - **Options:** the providers' Anthropic-compatible endpoints, used directly; [LiteLLM](https://docs.litellm.ai/); [claude-code-router](https://github.com/musistudio/claude-code-router); local inference servers such as Ollama or LM Studio.
 - **Considerations:** A gateway also provides per-agent cost logs. Compromised LiteLLM packages were published in March 2026, so any gateway must be pinned and verified. Local servers do not cache prompts, which changes cost and latency comparisons. Anthropic does not officially support routing Claude Code to non-Claude models.
-- **Needed by:** Phase 2.
+- **Proposal (2026-11-02):** a local LiteLLM proxy, pinned and installed from verified hashes, receives Claude Code's Anthropic Messages requests and forwards them to the provider's own API, starting with Google's Gemini API. It runs on the operator's machine next to the Collector, exposes only the experiment's models, has no fallbacks or retries of its own, and records each request's tokens per run without prompt text. claude-code-router and a minimal translator of our own are the fallbacks if it fails the [compatibility checks](../plans/google-models.md#7-compatibility-checks).
+  - **Why:** it keeps the harness, the engine version and the workflow the same as in the MVP, so the model and its route are the only factor that changes ([D-017](#d-017), [D-020](#d-020)). Results through it are labeled as workflow portability ([R9](../product/06-scope-and-roadmap.md#9-risks-and-mitigations)).
+- **Local route (2026-11-03):** open-weight models served on the operator's machine need no gateway. llama.cpp's server has accepted the Messages API directly since January 2026, so the harness points Claude Code at it, with one model loaded, a key per run and the server on the host's loopback ([local models plan](../plans/local-models.md#6-how-the-runs-reach-the-model)). The consideration above that local servers do not cache prompts no longer holds for llama.cpp, which reuses a cached prompt prefix between requests; on a local server that saves time, not money.
+- **Needed by:** Phase 2, or when the [Google models plan](../plans/google-models.md) ([D-056](#d-056)) or the [local models plan](../plans/local-models.md) ([D-058](#d-058)) is taken up.
 
 ### D-032
 
@@ -559,3 +568,78 @@ Entries are listed in ID order and keep their ID when their status changes. To c
   - The headline question "Is the workflow worth its cost?" is answered with cost, time and quality, not with the success rate alone.
   - The static analysis and independent review graders move to the front of M2.
   - Harder tasks remain a candidate for Phase 2, which already plans about five tasks ([roadmap](../product/06-scope-and-roadmap.md#5-phase-2-credibility-and-breadth)).
+
+### D-054
+
+**MVP relay releases: 0.49.0 as current, 0.47.0 as earlier**
+
+- **Status:** Accepted, 2026-10-31, with the M3 plan. Proposed 2026-10-31.
+- **Decision:** In the MVP experiment ([D-024](#d-024)), relay's current release is 0.49.0 and its earlier release is 0.47.0. Each runs from a copy of its exact commit in `fabiombarreto/PRPs-agentic-eng`: 0.49.0 from `cfe5e0b` (the merge of PR #51) and 0.47.0 from `e1844b6`, the copy the M2 pilots used. Every run records the plugin version it ran.
+- **Why:**
+  - 0.49.0 fixes the protocol defects the M2 pilots found in 0.47.0: the test writer refusing a test-first plan, the code reviewer's test guard blocking the approved tests, and the shortcuts Sonnet took through the protocol ([M2 results](../research/m2-results.md#relays-test-first-track-halts-on-haiku)). The earlier-release configuration therefore asks whether those fixes helped.
+  - Its changelog lists each change on its own line, so a difference between the two releases can be traced to the changes that may cause it.
+  - 0.48.0 changed only relay's QA runner, which `/relay-execute` does not use, so it would measure almost nothing against 0.47.0.
+  - The M2 pilots and the Phase 0 runs used 0.47.0, so they stay comparable with the earlier-release runs.
+- **Consequences:**
+  - 0.49.0 adds stages to relay's protocol, keeps all of relay's `PRPs/` files at the project root and writes its own stage ledger. The skipped-step check ([D-051](#d-051)) and the graders handle both releases, and relay's ledger is recorded next to the check's own result, not in place of it.
+  - The relay author made 0.49.0 after seeing the M2 pilots on Target A, so it is partly tuned on the tasks that judge it ([R4](../product/06-scope-and-roadmap.md#9-risks-and-mitigations)). The results say so. The fixes were validated on the public synthetic task, not on Target A, and the held-out task set of Phase 2 ([D-023](#d-023)) is the check against it.
+
+### D-055
+
+**Allowed providers for Target A: add Google's paid Gemini API?**
+
+- **Status:** Open
+- **Question:** May Target A's code and specifications also be sent to Google's Gemini models through the paid Gemini API? This would revisit [D-029](#d-029).
+- **Options:**
+  - (a) Allow the Gemini API under its paid-service terms, only from a dedicated Cloud project linked to a billing account. The unpaid quota, AI Studio's web interface and Gemini's consumer apps stay excluded.
+  - (b) Keep Target A on Anthropic only and run Gemini on the public synthetic target. It has one small task, and its earlier runs used relay 0.47.0, so the comparison with the MVP is indirect.
+- **Considerations:**
+  - Under the paid-service terms, Google does not use prompts or responses to improve its products, which meets [D-026](#d-026). It logs them for a limited period to detect policy violations and may store or cache them transiently in any country ([Gemini API terms](https://aistudio.google.com/docs/terms), effective 2026-03-23).
+  - Under the unpaid terms, content is used to improve Google's products and may be read by human reviewers, which [D-026](#d-026) excludes.
+  - Option (a) is the only way to compare Gemini with the MVP's runs on the same tasks.
+- **Needed by:** WP4 of the [Google models plan](../plans/google-models.md#11-work-packages), before any Gemini run on Target A.
+
+### D-056
+
+**Gemini experiment deferred; its plan is kept for later**
+
+- **Status:** Accepted, 2026-11-03. Proposed on 2026-11-02 as an experiment to run while the MVP waited for Anthropic credits.
+- **Decision:** The Gemini tests are not run for now. The [Google models plan](../plans/google-models.md) stays as future planning: nothing in it is built or run, and no Google project is created. Taking it up needs a new decision on its scope and funding.
+- **Why:** the owner decided on 2026-11-03 not to run them for now.
+- **Considerations kept for that decision:**
+  - The proposal of 2026-11-02 ran the experiment outside the frozen MVP, paid only with the Google AI plan's monthly Cloud credits, with MVP work keeping priority and publication after the MVP is public. Its conditions are in the [plan](../plans/google-models.md#2-relation-to-the-mvp).
+  - Repricing the Target A runs at Gemini's list prices put the experiment at about US$ 160–320, depending on the month, plus checks, pilots and retries, if Gemini's implicit cache hits as often as Anthropic's ([budget](../plans/google-models.md#10-budget)).
+- **Consequences:** [D-031](#d-031) stays Proposed and [D-055](#d-055) stays Open until the plan is taken up. Models from other providers stay a Phase 2 item ([CFG-07](../product/03-capabilities.md#2-workflows-models-and-configurations)).
+
+### D-057
+
+**Target A on open-weight models running on the operator's machine**
+
+- **Status:** Accepted, 2026-11-03. Proposed the same day.
+- **Decision:** Besides Anthropic's models through the API ([D-029](#d-029)), Target A's code and specifications may be processed by open-weight models running on the operator's machine, under these conditions:
+  - the weights are downloaded once from the publisher's or a named quantizer's repository, under a license that allows this use, and pinned by SHA-256;
+  - the inference server is pinned, runs offline, has no telemetry and is reachable only from the machine;
+  - no prompt or response text is kept outside the run's folder;
+  - the run container gets no model provider's key, and its allowlist names no model API.
+- **Why:** Nothing leaves the machine, so no provider receives the content, and the concern of [D-026](#d-026) about training on it does not arise. Unlike [D-055](#d-055), it adds no new processor.
+- **Consequences:** It revisits D-029, which records it in a note. Local runs on Target A are exported under the same rules as any private-target run. They reach Target A only after the plan's compatibility checks pass on the synthetic task ([local models plan](../plans/local-models.md#8-compatibility-checks)).
+
+### D-058
+
+**Local models experiment, outside the frozen MVP**
+
+- **Status:** Accepted, 2026-11-03. Proposed the same day.
+- **Decision:** Take up the [local models plan](../plans/local-models.md) as an experiment outside the frozen MVP: vanilla on two open-weight models running on the operator's machine, on Target A's three tasks with three repetitions each, and one relay probe on the synthetic task. Its conditions:
+  - the MVP does not change, and the local runs replace no MVP run;
+  - the MVP keeps priority over the operator's time and over the machine, and no local run starts while an MVP job is running;
+  - there is no API spend except the independent reviews, about US$ 7–11, counted with this experiment and never against the MVP's ceiling ([D-028](#d-028));
+  - results are published only after the MVP is public, labeled as workflow portability.
+- **Why:**
+  - The owner asked on 2026-11-03 to include tests with local models. Open-weight models are a Phase 2 item ([CFG-07](../product/03-capabilities.md#2-workflows-models-and-configurations)), and running them before the MVP is public is a broadening that the [conflict rules](../product/01-vision-and-scope.md#64-when-objectives-conflict) do not allow by default.
+  - The experiment costs almost no money, and it can use the machine while the MVP waits for its next Anthropic allowance.
+  - Every vanilla run on Claude so far met every criterion, so a weaker model also shows whether the hidden oracle separates configurations at all.
+- **Considerations:**
+  - It takes about 15–25 hours of operator time and 20–50 hours of machine time ([budget](../plans/local-models.md#11-budget)), which compete with M3's remaining work and M4.
+  - Relay gets only a probe: at this machine's speeds its runs would pass the three-hour limit, and its largest requests exceed the context the machine can hold ([what the runs need](../plans/local-models.md#51-what-the-runs-need)).
+  - The harness changes it needs are the ones the [Google models plan](../plans/google-models.md) needs, so that plan would reuse them ([D-056](#d-056)).
+- **Consequences:** The plan is taken up. [D-031](#d-031) stays Proposed until the plan's WP4, after the compatibility checks, where the hypotheses are also declared.

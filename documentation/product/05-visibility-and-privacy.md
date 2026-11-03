@@ -1,6 +1,6 @@
 # Visibility and privacy
 
-> **Status:** Draft · **Last updated:** 2026-10-20 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-11-03 · **Owner:** Fabio Martins Barreto
 
 AI Track Record must publish convincing evidence even though part of that evidence comes from code that cannot be shown. This document defines where each kind of material lives and the rules that keep private material private.
 
@@ -70,7 +70,7 @@ Running an agent sends code and specifications to a model provider. For private 
 - Providers that may train on submitted content, or whose data handling does not meet the target owner's requirements, are not allowed on private targets. They can still be evaluated on public targets.
 - Benchmark runs use API access meant for programmatic use, never consumer subscriptions or free tiers ([D-027](../decisions/decision-log.md#d-027)).
 
-The providers allowed for Target A are still an open decision ([D-029](../decisions/decision-log.md#d-029)).
+Target A's content may be sent only to Anthropic's models, through the API ([D-029](../decisions/decision-log.md#d-029)). It may also be processed by open-weight models running on the operator's machine, from which nothing leaves ([D-057](../decisions/decision-log.md#d-057)).
 
 ## 5. Verifiability without disclosure
 

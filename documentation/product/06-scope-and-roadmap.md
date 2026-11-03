@@ -1,6 +1,6 @@
 # Scope, roadmap and risks
 
-> **Status:** Draft · **Last updated:** 2026-10-26 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-11-03 · **Owner:** Fabio Martins Barreto
 
 AI Track Record is a bounded study that becomes a maintained benchmark ([D-039](../decisions/decision-log.md#d-039)). The MVP target date is the first week of December 2026 ([D-042](../decisions/decision-log.md#d-042)); if the MVP runs late, the date moves and the scope does not ([D-043](../decisions/decision-log.md#d-043)). The MVP scope is accepted and frozen ([D-024](../decisions/decision-log.md#d-024)). Phases 2 and 3 as a whole are still a **proposal**, although some Phase 2 items are already accepted decisions ([D-012](../decisions/decision-log.md#d-012), [D-021](../decisions/decision-log.md#d-021), [D-023](../decisions/decision-log.md#d-023)). The MVP budget is capped at US$ 800, with a target of US$ 400 set at M0 ([D-028](../decisions/decision-log.md#d-028)); the Phase 2 budget is open ([D-044](../decisions/decision-log.md#d-044)).
 
@@ -121,7 +121,7 @@ Candidates:
 - A **public reference target** with fully inspectable tasks, oracles and runs ([D-012](../decisions/decision-log.md#d-012)).
 - About five tasks, including frontend work, and a **held-out task set** ([D-023](../decisions/decision-log.md#d-023)).
 - **Mixed model assignments**, with a different model per role.
-- **Models from other providers and open-weight models**, through compatible endpoints or a gateway, labeled as workflow-portability results.
+- **Models from other providers and open-weight models**, through compatible endpoints or a gateway, labeled as workflow-portability results. The [Google models plan](../plans/google-models.md) prepares the first of them, Google's Gemini models, and is deferred for now ([D-056](../decisions/decision-log.md#d-056)). The [local models plan](../plans/local-models.md) runs open-weight models on the operator's machine before then, outside the MVP and behind it in priority ([D-058](../decisions/decision-log.md#d-058)).
 - An **LLM judge** with mergeability verdicts, calibrated against human grades.
 - **Workflow version history** on the dashboard, with prompt diffs next to the measured effects.
 - Two or three more write-ups.
