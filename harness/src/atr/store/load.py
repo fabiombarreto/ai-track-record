@@ -31,6 +31,7 @@ from pathlib import Path
 import duckdb
 
 from atr.checks.skipped_steps import check as check_protocol
+from atr.checks.skipped_steps import workflow_record
 
 SCHEMA = """
 CREATE TABLE trials (
@@ -43,8 +44,12 @@ CREATE TABLE trials (
     target TEXT, codename TEXT, target_description TEXT, visibility TEXT,
     task_id TEXT, task_title TEXT, difficulty TEXT, category TEXT,
     files_changed INTEGER, lines_added INTEGER, lines_removed INTEGER,
+    docs_files_changed INTEGER, docs_lines_added INTEGER,
     new_static_findings INTEGER, review_completed BOOLEAN, review_findings INTEGER,
+    review_cost_usd DOUBLE,
     protocol_checked BOOLEAN, skipped_steps INTEGER, skipped_flagged BOOLEAN,
+    relay_deviations INTEGER,
+    workflow TEXT, workflow_version TEXT, workflow_digest TEXT, workflow_source TEXT,
     regraded_in TEXT,
     PRIMARY KEY (job, trial)
 );
@@ -122,6 +127,13 @@ FULL JOIN ev USING (job, trial, model)
 LEFT JOIN met ON met.job = coalesce(sdk.job, ev.job)
     AND met.trial = coalesce(sdk.trial, ev.trial) AND met.model = coalesce(sdk.model, ev.model);
 
+CREATE VIEW spend AS
+SELECT job, trial, config, workflow_version, model, started_at,
+       coalesce(cost_usd, 0) + coalesce(review_cost_usd, 0) AS cost_usd,
+       sum(coalesce(cost_usd, 0) + coalesce(review_cost_usd, 0))
+           OVER (ORDER BY started_at, job, trial) AS cumulative_usd
+FROM trials;
+
 CREATE VIEW usage_by_agent AS
 SELECT job, trial, coalesce(agent_name, '(main)') AS agent, query_source, model,
        count(*) AS requests, sum(input_tokens) AS input_tokens,
@@ -172,26 +184,33 @@ def normalize_outcome(exception_type: str | None, subtype: str | None) -> str | 
 
 # Workflow working files, left out of size metrics as they are of the review.
 WORKFLOW_PREFIXES = ("PRPs/",)
+# The project's knowledge base. Relay's docs sync always updates it, and
+# vanilla sometimes does, so it is counted apart from the product's size.
+DOCS_PREFIXES = ("docs/",)
 
 
-def diff_size(patch: Path) -> tuple[int | None, int | None, int | None]:
-    """Product files changed, lines added and lines removed by a run's changes."""
+def diff_size(patch: Path) -> tuple[int | None, ...]:
+    """Product files changed, lines added and lines removed by a run's changes,
+    then the docs files changed and docs lines added."""
     if not patch.exists():
-        return None, None, None
-    files = added = removed = 0
-    counting = False
+        return None, None, None, None, None
+    files = added = removed = docs_files = docs_added = 0
+    kind = None
     for line in patch.read_text(errors="replace").splitlines():
         if line.startswith("diff --git "):
             path = line.split(" b/", 1)[-1]
-            counting = not path.startswith(WORKFLOW_PREFIXES)
-            files += counting
-        elif not counting:
+            kind = (None if path.startswith(WORKFLOW_PREFIXES)
+                    else "docs" if path.startswith(DOCS_PREFIXES) else "product")
+            files += kind == "product"
+            docs_files += kind == "docs"
+        elif kind is None:
             continue
         elif line.startswith("+") and not line.startswith("+++"):
-            added += 1
+            added += kind == "product"
+            docs_added += kind == "docs"
         elif line.startswith("-") and not line.startswith("---"):
-            removed += 1
-    return files, added, removed
+            removed += kind == "product"
+    return files, added, removed, docs_files, docs_added
 
 
 def load_verdicts(confirmations_dir: Path) -> dict[tuple[str, int], str]:
@@ -212,8 +231,10 @@ TRIAL_COLUMNS = (
     "reward", "criteria_satisfied", "existing_tests_pass", "exception", "changes_patch_bytes",
     "started_at", "finished_at", "target", "codename", "target_description", "visibility",
     "task_id", "task_title", "difficulty", "category", "files_changed", "lines_added",
-    "lines_removed", "new_static_findings", "review_completed", "review_findings",
-    "protocol_checked", "skipped_steps", "skipped_flagged", "regraded_in",
+    "lines_removed", "docs_files_changed", "docs_lines_added", "new_static_findings",
+    "review_completed", "review_findings", "review_cost_usd",
+    "protocol_checked", "skipped_steps", "skipped_flagged", "relay_deviations",
+    "workflow", "workflow_version", "workflow_digest", "workflow_source", "regraded_in",
 )
 
 
@@ -249,9 +270,13 @@ def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path, verdicts: dict) 
         task_path = (result["config"].get("task") or {}).get("path")
         task = read_json(Path(task_path) / "atr-task.json") if task_path else {}
         patch = graded_dir / "verifier" / "changes.patch"
-        files, added, removed = diff_size(patch)
+        files, added, removed, docs_files, docs_added = diff_size(patch)
         review = read_json(graded_dir / "review" / "review.json")
-        protocol = check_protocol(trial_dir) if (trial_dir / "config.json").exists() else {}
+        has_config = (trial_dir / "config.json").exists()
+        protocol = check_protocol(trial_dir) if has_config else {}
+        workflow = workflow_record(trial_dir) if has_config else {}
+        review_costs = [c for c in (review.get("cost_usd_per_turn") or []) if c is not None]
+        deviations = protocol.get("relay_deviations")
         exception = result.get("exception_info")
         exception_type = exception.get("exception_type") if exception else None
         outcome = normalize_outcome(exception_type, agent.get("subtype"))
@@ -284,12 +309,18 @@ def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path, verdicts: dict) 
             "task_title": task.get("title"), "difficulty": task.get("difficulty"),
             "category": task.get("category"),
             "files_changed": files, "lines_added": added, "lines_removed": removed,
+            "docs_files_changed": docs_files, "docs_lines_added": docs_added,
             "new_static_findings": None if static is None else int(static),
             "review_completed": review.get("completed") if review else None,
             "review_findings": review.get("n_findings") if review else None,
+            # The SDK reports a session's cost cumulatively, so the last turn has it all.
+            "review_cost_usd": review_costs[-1] if review_costs else None,
             "protocol_checked": applies,
             "skipped_steps": len(protocol["skipped"]) if applies else None,
             "skipped_flagged": protocol["flagged"] if applies else None,
+            "relay_deviations": len(deviations) if applies and deviations is not None else None,
+            "workflow": workflow.get("workflow"), "workflow_version": workflow.get("version"),
+            "workflow_digest": workflow.get("digest"), "workflow_source": workflow.get("source"),
             "regraded_in": graded_dir.parent.name if graded_dir != trial_dir else None,
         }
         con.execute(
@@ -353,7 +384,14 @@ def load_events(con: duckdb.DuckDBPyConnection, telemetry_dir: Path) -> int:
 
 
 def load_metrics(con: duckdb.DuckDBPyConnection, telemetry_dir: Path) -> int:
+    """Load metric points: every delta point, and the last point of each cumulative series.
+
+    Runs before M3 export deltas, which the reconciliation view sums. Later runs
+    export running totals, so only a series' last point counts; a series is one
+    attribute set from one start time.
+    """
     rows = []
+    cumulative: dict[tuple, tuple[int, list]] = {}
     for path in sorted(telemetry_dir.glob("metrics*.jsonl")):
         for line in path.open():
             for resource_metrics in json.loads(line).get("resourceMetrics", []):
@@ -366,15 +404,21 @@ def load_metrics(con: duckdb.DuckDBPyConnection, telemetry_dir: Path) -> int:
                         for point in data.get("dataPoints", []):
                             a = resource | otlp_attributes(point.get("attributes"))
                             value = point.get("asDouble", point.get("asInt"))
-                            rows.append(
-                                [
-                                    a.get("atr.job"), a.get("atr.trial"), metric["name"],
-                                    a.get("type"), a.get("model"), a.get("query_source"),
-                                    a.get("agent.name"),
-                                    float(value) if value is not None else None,
-                                    json.dumps(a),
-                                ]
-                            )
+                            row = [
+                                a.get("atr.job"), a.get("atr.trial"), metric["name"],
+                                a.get("type"), a.get("model"), a.get("query_source"),
+                                a.get("agent.name"),
+                                float(value) if value is not None else None,
+                                json.dumps(a, sort_keys=True),
+                            ]
+                            if data.get("aggregationTemporality") != 2:
+                                rows.append(row)
+                                continue
+                            key = (metric["name"], row[-1], point.get("startTimeUnixNano"))
+                            time = int(point.get("timeUnixNano") or 0)
+                            if key not in cumulative or time >= cumulative[key][0]:
+                                cumulative[key] = (time, row)
+    rows += [row for _, row in cumulative.values()]
     if rows:
         con.executemany(f"INSERT INTO metric_points VALUES ({', '.join('?' * 9)})", rows)
     return len(rows)

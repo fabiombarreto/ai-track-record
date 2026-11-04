@@ -155,6 +155,9 @@ class ClaudeAgentSdk(BaseInstalledAgent):
             "OTEL_EXPORTER_OTLP_ENDPOINT": endpoint,
             "OTEL_METRIC_EXPORT_INTERVAL": "1000",
             "OTEL_LOGS_EXPORT_INTERVAL": "1000",
+            # Each export carries running totals, so an export lost behind the
+            # allowlist proxy after a long API request is made up by the next one.
+            "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "cumulative",
             # Gives the exporters time to send the last batch when the run ends.
             "CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS": "10000",
             "CLAUDE_CODE_OTEL_SHUTDOWN_TIMEOUT_MS": "10000",
@@ -187,6 +190,32 @@ class ClaudeAgentSdk(BaseInstalledAgent):
                 f"(HTTP {status or 'none'}): {detail.strip()[-500:]}"
             )
 
+    async def _record_workflow(self, environment: BaseEnvironment) -> None:
+        """Write workflow.json: the plugin's name and version, and a digest of its files.
+
+        Two copies of a plugin can share a version number, so the digest tells
+        them apart. A run without a plugin is vanilla.
+        """
+        record: dict = {"workflow": "vanilla", "version": None, "digest": None}
+        if self.options.plugin_dir:
+            root = shlex.quote(self.options.plugin_dir)
+            manifest = await environment.exec(command=f"cat {root}/.claude-plugin/plugin.json")
+            digest = await environment.exec(
+                command=(
+                    f"cd {root} && find . -type f -print0 | LC_ALL=C sort -z "
+                    "| xargs -0 sha256sum | sha256sum | cut -d' ' -f1"
+                )
+            )
+            if manifest.return_code != 0:
+                raise RuntimeError(f"no plugin manifest in {self.options.plugin_dir}")
+            plugin = json.loads(manifest.stdout or "{}")
+            record = {
+                "workflow": plugin.get("name"),
+                "version": plugin.get("version"),
+                "digest": (digest.stdout or "").strip() or None,
+            }
+        (self.logs_dir / "workflow.json").write_text(json.dumps(record, indent=2))
+
     @with_prompt_template
     async def run(
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
@@ -201,6 +230,7 @@ class ClaudeAgentSdk(BaseInstalledAgent):
         if api_key is None:
             raise ValueError("ANTHROPIC_API_KEY must be set")
         model = self._model()
+        await self._record_workflow(environment)
         env = {
             "ANTHROPIC_API_KEY": api_key,
             "ANTHROPIC_MODEL": model,

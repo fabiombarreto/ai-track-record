@@ -28,14 +28,15 @@ from pathlib import Path
 
 import duckdb
 
-ALLOWLIST_VERSION = "1"
+ALLOWLIST_VERSION = "2"
 
 RUN_FIELDS = (
     "job", "trial", "codename", "task_id", "config", "model", "agent_version",
     "outcome", "native_outcome", "num_turns", "wall_ms", "duration_api_ms", "cost_usd",
     "reward", "criteria_satisfied", "existing_tests_pass",
-    "files_changed", "lines_added", "lines_removed", "new_static_findings",
-    "review_findings", "skipped_steps", "skipped_flagged", "started_at",
+    "files_changed", "lines_added", "lines_removed", "docs_files_changed", "docs_lines_added",
+    "new_static_findings", "review_findings", "skipped_steps", "skipped_flagged",
+    "relay_deviations", "workflow", "workflow_version", "workflow_source", "started_at",
 )
 PUBLIC_RUN_FIELDS = ("task_title",)
 TASK_FIELDS = ("codename", "task_id", "category", "difficulty")
