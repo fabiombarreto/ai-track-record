@@ -1,0 +1,20 @@
+# PRPs/redaction-extensions.txt
+#
+# Per-project extensions to the Test Runner redaction policy.
+# Full catalog and semantics: C:/repos/PRPs-agentic-eng/plugins/relay/resources/redaction-policy.md
+# (in the relay plugin repo).
+#
+# Format: one entry per line. Blank lines and `#` comments ignored.
+#
+# Env var names (exact match, or glob with *):
+#   EXAMPLE_AUTH_PROXY_SECRET
+#   LEGACY_*_API
+#
+# Value regex — prefix with `regex:`:
+#   regex:example-[a-f0-9]{32}
+#
+# Entries added here stack on top of Layer 1 invariants; they can
+# only add rules, never remove them.
+
+# The local inference server's per-run key (local models plan, D-058).
+LLAMA_API_KEY

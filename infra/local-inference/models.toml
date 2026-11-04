@@ -1,0 +1,130 @@
+# Open-weight models and the inference server of the local models plan
+# (documentation/plans/local-models.md, D-057, D-058).
+#
+# Every weight file is pinned by repository revision and SHA-256, and the server
+# image by digest. From harness/, in WSL:
+#   uv run python -m atr.local.fetch            download and verify the main stage
+#   uv run python -m atr.local.serve start <id> start the server with one model
+#   uv run python -m atr.local.bench            measure its speeds and power
+#   uv run python -m atr.local.serve stop
+# Weights live outside the repository, in $ATR_MODELS_DIR (default /mnt/d/atr/models).
+# The flags start from the model cards and are tuned in WP0.
+
+[server]
+image = "ghcr.io/ggml-org/llama.cpp:server-cuda-b12063@sha256:d5ffba7d096ab0236c65dc147d797b4b7658a7e5425634593373635d661bccda"
+build = "b12063"
+commit = "2cbca389f515df455412dafa07e2b1359cc72a6d"
+cuda = "12.8.1"
+# Environment variable through which the server reads its API key.
+api_key_env = "LLAMA_API_KEY"
+# Flags for every model; each model adds its own.
+args = [
+    "--flash-attn", "on",
+    "--cache-type-k", "q8_0",
+    "--cache-type-v", "q8_0",
+    "--parallel", "1",
+    "--metrics",
+    "--offline",
+]
+
+# L-MoE. Thinking, precise coding: the model card's sampling.
+[models."qwen3.6-35b-a3b-ud-q3_k_xl"]
+alias = "qwen3.6-35b-a3b"
+role = "L-MoE"
+stage = "main"
+repo = "unsloth/Qwen3.6-35B-A3B-GGUF"
+revision = "a483e9e6cbd595906af30beda3187c2663a1118c"
+file = "Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf"
+size = 16845511648
+sha256 = "a832b9689925f1bd335bbe985cdfb06c36bf2cf268f4f8f6eceafa3ceb515617"
+context = 131072
+args = [
+    "--n-gpu-layers", "999",
+    "--n-cpu-moe", "36",
+    "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",
+    "--chat-template-kwargs", '{"enable_thinking":true}',
+]
+
+# L-MoE if RAM runs short.
+[models."qwen3.6-35b-a3b-ud-iq3_xxs"]
+alias = "qwen3.6-35b-a3b"
+role = "L-MoE"
+stage = "fallback"
+repo = "unsloth/Qwen3.6-35B-A3B-GGUF"
+revision = "a483e9e6cbd595906af30beda3187c2663a1118c"
+file = "Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf"
+size = 13211155424
+sha256 = "9c964e657212fea1f24905dd7b0a89b82fd807d19fab0b41da14251b07b88fbe"
+context = 131072
+args = [
+    "--n-gpu-layers", "999",
+    "--n-cpu-moe", "34",
+    "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",
+    "--chat-template-kwargs", '{"enable_thinking":true}',
+]
+
+# L-MoE at 4 bits, only with a larger WSL memory profile.
+[models."qwen3.6-35b-a3b-ud-q4_k_xl"]
+alias = "qwen3.6-35b-a3b"
+role = "L-MoE"
+stage = "option"
+repo = "unsloth/Qwen3.6-35B-A3B-GGUF"
+revision = "a483e9e6cbd595906af30beda3187c2663a1118c"
+file = "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+size = 22360456160
+sha256 = "707a55a8a4397ecde44de0c499d3e68c1ad1d240d1da65826b4949d1043f4450"
+context = 131072
+args = [
+    "--n-gpu-layers", "999",
+    "--n-cpu-moe", "38",
+    "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",
+    "--chat-template-kwargs", '{"enable_thinking":true}',
+]
+
+# L-Small, entirely on the GPU. Unsloth and the card disagree on whether it
+# thinks by default, so thinking is set explicitly.
+[models."qwen3.5-9b-q4_k_m"]
+alias = "qwen3.5-9b"
+role = "L-Small"
+stage = "main"
+repo = "unsloth/Qwen3.5-9B-GGUF"
+revision = "3885219b6810b007914f3a7950a8d1b469d598a5"
+file = "Qwen3.5-9B-Q4_K_M.gguf"
+size = 5680522464
+sha256 = "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
+context = 131072
+args = [
+    "--n-gpu-layers", "999",
+    "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",
+    "--chat-template-kwargs", '{"enable_thinking":true}',
+]
+
+# L-Alt candidate. Its card gives no sampling; it uses the harmony format.
+[models."gpt-oss-20b-mxfp4"]
+alias = "gpt-oss-20b"
+role = "L-Alt"
+stage = "candidate"
+repo = "ggml-org/gpt-oss-20b-GGUF"
+revision = "15dcfc7e7c608c6161507211ed43c5b590801b4b"
+file = "gpt-oss-20b-MXFP4.gguf"
+size = 12109566624
+sha256 = "27cd6c432c7672cb812a92f611cf3ba7bbc35928262bb1e1253ff4ee6ae35901"
+context = 131072
+args = ["--n-gpu-layers", "999", "--n-cpu-moe", "18"]
+
+# L-Alt candidate. The card's sampling for every use.
+[models."gemma-4-26b-a4b-ud-q3_k_xl"]
+alias = "gemma-4-26b-a4b"
+role = "L-Alt"
+stage = "candidate"
+repo = "unsloth/gemma-4-26B-A4B-it-GGUF"
+revision = "c099eb48e663fd284577b04978a94ffccb261841"
+file = "gemma-4-26B-A4B-it-UD-Q3_K_XL.gguf"
+size = 12907280096
+sha256 = "90a918830420e6a36e01c0d219e563f1d0ca7f223dffd90ad4e02ef4f3253fde"
+context = 131072
+args = [
+    "--n-gpu-layers", "999",
+    "--n-cpu-moe", "22",
+    "--temp", "1.0", "--top-p", "0.95", "--top-k", "64",
+]
