@@ -5,8 +5,11 @@ Usage: python -m atr.store.export <out dir> <job>... [--data-dir <dir>] [--db <f
 Deny by default: each run, task and target is copied through an allowlist of
 fields for its target's visibility class, and anything not listed is withheld.
 For a private target that leaves the codename and generic description, the
-task's category and difficulty, per-run metrics, the size of each run's
-changes and the review findings as counts by category, never their text.
+task's category and difficulty, per-run metrics, the size of each run's changes
+and the review findings as counts by category, never their text. Each run
+carries its route, provider, quantization, cost source and GPU energy; a local
+run also carries a label naming it workflow portability on a quantized model,
+and its model is published as the alias (version 3 of the allowlist).
 
 Before anything is written, a leak check scans the whole export for the
 private terms listed in <data dir>/leak-terms.txt (one per line, kept outside
@@ -28,7 +31,7 @@ from pathlib import Path
 
 import duckdb
 
-ALLOWLIST_VERSION = "2"
+ALLOWLIST_VERSION = "3"
 
 RUN_FIELDS = (
     "job", "trial", "codename", "task_id", "config", "model", "agent_version",
@@ -37,7 +40,9 @@ RUN_FIELDS = (
     "files_changed", "lines_added", "lines_removed", "docs_files_changed", "docs_lines_added",
     "new_static_findings", "review_findings", "skipped_steps", "skipped_flagged",
     "relay_deviations", "workflow", "workflow_version", "workflow_source", "started_at",
+    "route", "provider", "quantization", "cost_source", "energy_wh",
 )
+LOCAL_LABEL = "workflow portability, quantized local model"
 PUBLIC_RUN_FIELDS = ("task_title",)
 TASK_FIELDS = ("codename", "task_id", "category", "difficulty")
 PUBLIC_TASK_FIELDS = ("task_title",)
@@ -97,6 +102,11 @@ def build_export(con: duckdb.DuckDBPyConnection, jobs: list[str]) -> dict[str, o
         public = trial["visibility"] == "public"
         fields = RUN_FIELDS + (PUBLIC_RUN_FIELDS if public else ())
         run = {field: jsonable(trial[field]) for field in fields}
+        local = trial["route"] == "local"
+        run["label"] = LOCAL_LABEL if local else None
+        if local:
+            # The alias, not the route's `local/<alias>` id, which the leak check reads as a path.
+            run["model"] = str(trial["model"]).removeprefix("local/")
         usage = tokens.get((trial["job"], trial["trial"]), {})
         run |= {key: usage.get(key) for key in
                 ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens")}

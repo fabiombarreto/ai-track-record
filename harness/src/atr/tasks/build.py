@@ -1,6 +1,6 @@
 """Build a Harbor task folder from a task authored as a pull request.
 
-Usage: python -m atr.tasks.build <task manifest .toml> [--out <directory>]
+Usage: python -m atr.tasks.build <task manifest .toml> [--out <directory>] [--route {anthropic,local}]
 
 The manifest names a target repository, a base ref and a solution ref. The
 base ref becomes the agent's starting point, as a snapshot with no other git
@@ -19,6 +19,15 @@ Optional manifest keys:
   count the findings the run introduced, for example ["ruff"].
 - network.agent_allowed_hosts and network.verifier_allowed_hosts: Harbor's
   network allowlist for each phase (default: an open network).
+- network.agent_allowed_hosts_local: the agent's allowlist on the local route.
+  Without it, the local route uses agent_allowed_hosts without
+  api.anthropic.com and with host.docker.internal.
+
+`--route local` builds the variant `<task id>-local`: the agent's allowlist
+comes from the local route's hosts, the verifier's network is unchanged, and
+atr-task.json keeps the task id and adds "route": "local". A local variant
+without an allowlist, or one that names api.anthropic.com or lacks
+host.docker.internal, is not built. The default route builds what it always did.
 """
 
 import argparse
@@ -112,7 +121,28 @@ def network_policy(hosts: list[str] | None) -> str:
     return f'network_mode = "allowlist"\nallowed_hosts = {json.dumps(hosts)}\n'
 
 
-def build(manifest_path: Path, out_root: Path) -> Path:
+ANTHROPIC_HOST = "api.anthropic.com"
+LOCAL_HOST = "host.docker.internal"
+
+
+def local_hosts(network: dict) -> list[str] | None:
+    """The agent's allowlist on the local route; None when the manifest has no agent allowlist."""
+    if "agent_allowed_hosts_local" in network:
+        hosts = list(network["agent_allowed_hosts_local"])
+    elif "agent_allowed_hosts" in network:
+        hosts = [h for h in network["agent_allowed_hosts"] if h != ANTHROPIC_HOST]
+        if LOCAL_HOST not in hosts:
+            hosts.append(LOCAL_HOST)
+    else:
+        return None
+    if ANTHROPIC_HOST in hosts:
+        raise SystemExit(f"the local allowlist names {ANTHROPIC_HOST}; a local variant is not built")
+    if LOCAL_HOST not in hosts:
+        raise SystemExit(f"the local allowlist lacks {LOCAL_HOST}; a local variant is not built")
+    return hosts
+
+
+def build(manifest_path: Path, out_root: Path, route: str = "anthropic") -> Path:
     manifest = tomllib.loads(manifest_path.read_text())
     target, task = manifest["target"], manifest["task"]
     network = manifest.get("network", {})
@@ -120,7 +150,14 @@ def build(manifest_path: Path, out_root: Path) -> Path:
     templates = manifest_path.parent / "templates"
     base, solution = task["base_ref"], task["solution_ref"]
 
-    out = out_root / target["name"] / task["id"]
+    name = f"{task['id']}-local" if route == "local" else task["id"]
+    agent_hosts = network.get("agent_allowed_hosts")
+    if route == "local":
+        agent_hosts = local_hosts(network)
+        if agent_hosts is None:
+            raise SystemExit("the manifest has no agent allowlist; a local variant without one is not built")
+
+    out = out_root / target["name"] / name
     if out.exists():
         shutil.rmtree(out)
 
@@ -169,6 +206,8 @@ def build(manifest_path: Path, out_root: Path) -> Path:
         "category": task["category"],
         "criteria": len(task["criteria"]),
     }
+    if route == "local":
+        metadata["route"] = "local"
     write(out / "atr-task.json", json.dumps(metadata, indent=2))
 
     write(out / "instruction.md", INSTRUCTION.format(spec=task["spec"]))
@@ -176,13 +215,13 @@ def build(manifest_path: Path, out_root: Path) -> Path:
         out / "task.toml",
         TASK_TOML.format(
             target=target["name"],
-            task_id=task["id"],
+            task_id=name,
             title=task["title"],
             difficulty=task["difficulty"],
             category=task["category"],
             agent_timeout=task["agent_timeout_sec"],
             verifier_timeout=task["verifier_timeout_sec"],
-            agent_network=network_policy(network.get("agent_allowed_hosts")),
+            agent_network=network_policy(agent_hosts),
             verifier_network=network_policy(network.get("verifier_allowed_hosts")),
         ),
     )
@@ -197,8 +236,9 @@ def main() -> None:
         type=Path,
         default=Path(os.environ.get("ATR_DATA_DIR", "~/atr/data")).expanduser() / "tasks",
     )
+    parser.add_argument("--route", choices=["anthropic", "local"], default="anthropic")
     args = parser.parse_args()
-    print(build(args.manifest.resolve(), args.out))
+    print(build(args.manifest.resolve(), args.out, args.route))
 
 
 if __name__ == "__main__":

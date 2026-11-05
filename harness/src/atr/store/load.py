@@ -51,6 +51,10 @@ CREATE TABLE trials (
     relay_deviations INTEGER,
     workflow TEXT, workflow_version TEXT, workflow_digest TEXT, workflow_source TEXT,
     regraded_in TEXT,
+    route TEXT, provider TEXT, quantization TEXT, server_build TEXT, cost_source TEXT,
+    sdk_cost_estimate_usd DOUBLE, energy_wh DOUBLE, power_mean_w DOUBLE,
+    server_prompt_tokens BIGINT, server_cached_prompt_tokens BIGINT,
+    server_output_tokens BIGINT,
     PRIMARY KEY (job, trial)
 );
 CREATE TABLE review_findings (
@@ -80,8 +84,9 @@ CREATE TABLE metric_points (
 
 CREATE VIEW reconciliation AS
 WITH sdk AS (
-    SELECT job, trial, model, input_tokens, output_tokens,
-           cache_read_tokens, cache_creation_tokens, cost_usd
+    -- A local run's modelUsage may name the alias with a `local/` prefix.
+    SELECT job, trial, regexp_replace(model, '^local/', '') AS model, input_tokens,
+           output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd
     FROM model_usage
 ), ev AS (
     SELECT job, trial, model,
@@ -101,7 +106,7 @@ WITH sdk AS (
 )
 SELECT
     coalesce(sdk.job, ev.job) AS job, coalesce(sdk.trial, ev.trial) AS trial,
-    coalesce(sdk.model, ev.model) AS model, ev.requests,
+    coalesce(sdk.model, ev.model) AS model, tr.route, ev.requests,
     sdk.input_tokens AS sdk_input, ev.input_tokens AS event_input, met.input_tokens AS metric_input,
     sdk.output_tokens AS sdk_output, ev.output_tokens AS event_output, met.output_tokens AS metric_output,
     sdk.cache_read_tokens AS sdk_cache_read, ev.cache_read_tokens AS event_cache_read,
@@ -109,9 +114,26 @@ SELECT
     sdk.cache_creation_tokens AS sdk_cache_creation, ev.cache_creation_tokens AS event_cache_creation,
     met.cache_creation_tokens AS metric_cache_creation,
     sdk.cost_usd AS sdk_cost, ev.cost_usd AS event_cost, met.cost_usd AS metric_cost,
+    tr.server_prompt_tokens + tr.server_cached_prompt_tokens AS server_prompt,
+    tr.server_output_tokens AS server_output,
+    CASE WHEN tr.route = 'local'
+         THEN sdk.input_tokens + sdk.cache_read_tokens + sdk.cache_creation_tokens END AS sdk_total_input,
     CASE
         WHEN ev.requests IS NULL THEN 'no telemetry'
         WHEN sdk.model IS NULL THEN 'model missing from modelUsage'
+        -- A local run has no API cost to compare: tokens only, with the server as a fourth source.
+        WHEN tr.route = 'local'
+        THEN CASE
+            WHEN sdk.input_tokens = ev.input_tokens AND sdk.output_tokens = ev.output_tokens
+             AND sdk.cache_read_tokens = ev.cache_read_tokens
+             AND sdk.cache_creation_tokens = ev.cache_creation_tokens
+             AND ev.input_tokens = met.input_tokens AND ev.output_tokens = met.output_tokens
+             AND ev.cache_read_tokens = met.cache_read_tokens
+             AND ev.cache_creation_tokens = met.cache_creation_tokens
+             AND tr.server_prompt_tokens + tr.server_cached_prompt_tokens
+                 = sdk.input_tokens + sdk.cache_read_tokens + sdk.cache_creation_tokens
+             AND tr.server_output_tokens = sdk.output_tokens
+            THEN 'match' ELSE 'mismatch' END
         WHEN sdk.input_tokens = ev.input_tokens AND sdk.output_tokens = ev.output_tokens
          AND sdk.cache_read_tokens = ev.cache_read_tokens
          AND sdk.cache_creation_tokens = ev.cache_creation_tokens
@@ -125,7 +147,8 @@ SELECT
 FROM sdk
 FULL JOIN ev USING (job, trial, model)
 LEFT JOIN met ON met.job = coalesce(sdk.job, ev.job)
-    AND met.trial = coalesce(sdk.trial, ev.trial) AND met.model = coalesce(sdk.model, ev.model);
+    AND met.trial = coalesce(sdk.trial, ev.trial) AND met.model = coalesce(sdk.model, ev.model)
+LEFT JOIN trials tr ON tr.job = coalesce(sdk.job, ev.job) AND tr.trial = coalesce(sdk.trial, ev.trial);
 
 CREATE VIEW spend AS
 SELECT job, trial, config, workflow_version, model, started_at,
@@ -235,7 +258,58 @@ TRIAL_COLUMNS = (
     "review_completed", "review_findings", "review_cost_usd",
     "protocol_checked", "skipped_steps", "skipped_flagged", "relay_deviations",
     "workflow", "workflow_version", "workflow_digest", "workflow_source", "regraded_in",
+    "route", "provider", "quantization", "server_build", "cost_source",
+    "sdk_cost_estimate_usd", "energy_wh", "power_mean_w",
+    "server_prompt_tokens", "server_cached_prompt_tokens", "server_output_tokens",
 )
+
+SERVER_COUNTERS = {
+    "llamacpp:prompt_tokens_total": "server_prompt_tokens",
+    "llamacpp:prompt_tokens_cached_total": "server_cached_prompt_tokens",
+    "llamacpp:tokens_predicted_total": "server_output_tokens",
+}
+
+
+def server_counters(path: Path) -> dict[str, int | None]:
+    """The server's token counters from its Prometheus text; None when absent."""
+    counters: dict[str, int | None] = dict.fromkeys(SERVER_COUNTERS.values())
+    if not path.exists():
+        return counters
+    for line in path.read_text(errors="replace").splitlines():
+        if line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] in SERVER_COUNTERS:
+            try:
+                counters[SERVER_COUNTERS[parts[0]]] = int(float(parts[-1]))
+            except ValueError:
+                continue
+    return counters
+
+
+def failure_cause(exception: dict, trial_dir: Path) -> str:
+    """Name the cause of a run that failed before an SDK result.
+
+    The exception type, then the first line of Harbor's message when it is the
+    agent's own; Harbor's "Command failed" line holds the runner's command line
+    (container paths), so the last assistant message's error stands in for it.
+    """
+    kind = exception.get("exception_type") or "error"
+    lines = (exception.get("exception_message") or "").strip().splitlines()
+    first = lines[0].strip() if lines else ""
+    if first and not first.startswith("Command failed"):
+        return f"{kind}: {first[:200]}"
+    error = None
+    messages = trial_dir / "agent" / "messages.jsonl"
+    if messages.exists():
+        for line in messages.read_text(errors="replace").splitlines():
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if message.get("_type") == "AssistantMessage" and message.get("error"):
+                error = message["error"]
+    return str(error) if error else kind
 
 
 def latest_regrades(jobs_dir: Path) -> dict[str, Path]:
@@ -281,6 +355,21 @@ def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path, verdicts: dict) 
         exception_type = exception.get("exception_type") if exception else None
         outcome = normalize_outcome(exception_type, agent.get("subtype"))
         native = agent.get("subtype")
+        route_record = read_json(trial_dir / "agent" / "route.json")
+        power = read_json(trial_dir / "server" / "power.json")
+        counters = server_counters(trial_dir / "server" / "metrics.prom")
+        route = (route_record.get("provider") or kwargs.get("route")
+                 or ("anthropic" if agent.get("subtype") is not None else None))
+        if route == "local" and exception and native is None:
+            # Only local runs get a native reason for a failure before an SDK result; the
+            # other routes keep the exported field as it was (the SDK's subtype, or null).
+            native = failure_cause(exception, trial_dir)
+        sdk_cost = agent.get("total_cost_usd")
+        if route == "local":
+            # No API cost: the SDK's own figure is an estimate for a model it cannot price.
+            cost, cost_source, sdk_estimate = 0.0, "local", sdk_cost
+        else:
+            cost, cost_source, sdk_estimate = sdk_cost, None if sdk_cost is None else "sdk", None
         halt = protocol.get("orchestrator_outcome")
         if outcome == "completed" and halt and not str(halt).upper().startswith("ALL_PHASES"):
             # A relay HALT ends as a successful SDK result.
@@ -298,7 +387,7 @@ def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path, verdicts: dict) 
             "num_turns": agent.get("atr_num_turns", agent.get("num_turns")),
             "wall_ms": agent.get("atr_wall_ms"), "duration_ms": agent.get("duration_ms"),
             "duration_api_ms": agent.get("duration_api_ms"),
-            "cost_usd": agent.get("total_cost_usd"),
+            "cost_usd": cost,
             "reward": rewards.get("reward"), "criteria_satisfied": rewards.get("criteria_satisfied"),
             "existing_tests_pass": rewards.get("existing_tests_pass"), "exception": exception_type,
             "changes_patch_bytes": patch.stat().st_size if patch.exists() else None,
@@ -322,7 +411,12 @@ def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path, verdicts: dict) 
             "workflow": workflow.get("workflow"), "workflow_version": workflow.get("version"),
             "workflow_digest": workflow.get("digest"), "workflow_source": workflow.get("source"),
             "regraded_in": graded_dir.parent.name if graded_dir != trial_dir else None,
-        }
+            "route": route, "provider": route_record.get("provider"),
+            "quantization": route_record.get("quantization"),
+            "server_build": route_record.get("build"), "cost_source": cost_source,
+            "sdk_cost_estimate_usd": sdk_estimate,
+            "energy_wh": power.get("energy_wh"), "power_mean_w": power.get("power_mean_w"),
+        } | counters
         con.execute(
             f"INSERT INTO trials ({', '.join(TRIAL_COLUMNS)}) "
             f"VALUES ({', '.join('?' * len(TRIAL_COLUMNS))})",
@@ -442,11 +536,11 @@ def main() -> None:
     print(f"{db}: {trials} trials, {events} events, {points} metric points")
 
     rows = con.execute(
-        "SELECT job, trial, model, requests, status FROM reconciliation "
+        "SELECT job, trial, model, route, requests, status FROM reconciliation "
         "WHERE status <> 'no telemetry' ORDER BY job, trial, model"
     ).fetchall()
-    for job, trial, model, requests, status in rows:
-        print(f"  {job}/{trial} {model}: {requests} requests, {status}")
+    for job, trial, model, route, requests, status in rows:
+        print(f"  {job}/{trial} {model} [{route}]: {requests} requests, {status}")
     con.close()
 
 

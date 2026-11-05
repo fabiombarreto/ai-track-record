@@ -16,6 +16,7 @@ Spend per job, run cost, review cost, ceiling, target, cost cap.
 - With `--next <usd>`, the command exits 1 when the spend so far plus that amount would pass the ceiling; the launcher passes the job's cost cap or its highest cost seen.
 - Runs are paid first with the Max plan's included API credits, which expire each billing cycle, then with purchased credits, always within the ceiling (D-049).
 - Experiments outside the MVP never draw on its ceiling: local runs have no API cost and their reviews are counted with their own experiment (D-058).
+- Jobs whose name starts with `lc-` are left out of the total checked against the ceiling (and out of `--next`). The command prints them on their own line: the SDK's estimate (not money spent) and the reviews' cost as Anthropic credit of the local models experiment.
 
 ## Relationships
 

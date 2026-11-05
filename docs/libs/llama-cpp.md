@@ -13,6 +13,7 @@
 - API key from the `LLAMA_API_KEY` environment variable (or `--api-key`, `--api-key-file`); clients send it as a Bearer token.
 - `--n-cpu-moe N` keeps the mixture-of-experts weights of the first N layers in RAM; `--n-gpu-layers` sets the layers in VRAM.
 - `--chat-template-kwargs '<json>'` passes template options, such as `{"enable_thinking":true}` for Qwen models.
+- `--chat-template-file <path>` replaces the model's embedded chat template; here the path is inside the container (`/templates/...`, mounted read-only) and `atr.local.serve` checks its SHA-256.
 - `--cache-type-k/--cache-type-v` quantize the KV cache; `--flash-attn on|off|auto`.
 - `--parallel N` sets the slots; with unified KV the context is shared across them.
 - The native `POST /completion` returns `timings` (prompt and generation tokens and speeds); `cache_prompt: false` forces the whole prompt to be processed.
@@ -20,7 +21,10 @@
 
 ## Gotchas
 
-- `--cache-ram` defaults to 8192 MiB of host RAM for the prompt cache, which this machine must budget; 0 disables it.
+- `--cache-ram` defaults to 8192 MiB of host RAM for the prompt cache, which this machine must budget; 0 disables it. Here it is 4096 for L-Small and 2048 for L-MoE (see `infra/local-inference/models.toml`).
+- `/slots` returns each slot's detokenized prompt and generated text: never store it as is; `serve record` and `atr.local.probe` drop both fields.
+- `/slots` and `/metrics` need the key too (check 401 without, 200 with); `/slots` is enabled explicitly with `--slots`, and `--no-webui` turns the web UI off.
+- Claude Code appends system turns mid-conversation. The embedded Qwen3.5-9B template raises "System message must be at the beginning" on them (fixed with an override file); the embedded L-MoE template does not raise but does not render them.
 - `--mlock` is no longer a flag: it is `--load-mode mlock`.
 - Prompt caching can make results nondeterministic.
 - Some endpoints, such as model listing, may not require the key; check authentication on an endpoint that does, such as `count_tokens`.

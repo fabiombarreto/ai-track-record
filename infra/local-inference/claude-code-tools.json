@@ -1,0 +1,265 @@
+[
+  {
+    "name": "Agent",
+    "description": "Launch a sub-agent to handle a self-contained task and return its final report.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "description": {"type": "string", "description": "A short label for the task."},
+        "prompt": {"type": "string", "description": "The full task for the sub-agent."},
+        "subagent_type": {"type": "string", "description": "The kind of sub-agent to use."}
+      },
+      "required": ["description", "prompt", "subagent_type"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "Bash",
+    "description": "Run a shell command in the working directory and return its output.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "command": {"type": "string", "description": "The command to run."},
+        "timeout": {"type": "number", "description": "Milliseconds before the command is stopped."},
+        "description": {"type": "string", "description": "What the command does, in a few words."},
+        "run_in_background": {"type": "boolean", "description": "Run the command without waiting for it."}
+      },
+      "required": ["command"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "BashOutput",
+    "description": "Read the new output of a command running in the background.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "bash_id": {"type": "string", "description": "The id of the background command."},
+        "filter": {"type": "string", "description": "A regular expression; only matching lines are returned."}
+      },
+      "required": ["bash_id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "KillShell",
+    "description": "Stop a command running in the background.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "shell_id": {"type": "string", "description": "The id of the background command."}
+      },
+      "required": ["shell_id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "Edit",
+    "description": "Replace an exact piece of text in a file with another.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_path": {"type": "string", "description": "Absolute path of the file."},
+        "old_string": {"type": "string", "description": "The text to replace."},
+        "new_string": {"type": "string", "description": "The replacement text."},
+        "replace_all": {"type": "boolean", "default": false, "description": "Replace every occurrence."}
+      },
+      "required": ["file_path", "old_string", "new_string"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "MultiEdit",
+    "description": "Apply several exact replacements to one file in order.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_path": {"type": "string", "description": "Absolute path of the file."},
+        "edits": {
+          "type": "array",
+          "description": "The replacements, applied in order.",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "old_string": {"type": "string"},
+              "new_string": {"type": "string"},
+              "replace_all": {"type": "boolean", "default": false}
+            },
+            "required": ["old_string", "new_string"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["file_path", "edits"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "ExitPlanMode",
+    "description": "Present a plan and leave planning mode.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "plan": {"type": "string", "description": "The plan, in Markdown."}
+      },
+      "required": ["plan"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "Glob",
+    "description": "Find files whose names match a pattern.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "pattern": {"type": "string", "description": "The glob pattern."},
+        "path": {"type": "string", "description": "The folder to search; the working directory if absent."}
+      },
+      "required": ["pattern"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "Grep",
+    "description": "Search file contents with a regular expression.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "pattern": {"type": "string", "description": "The regular expression."},
+        "path": {"type": "string", "description": "The file or folder to search."},
+        "glob": {"type": "string", "description": "Only search files matching this pattern."},
+        "output_mode": {"type": "string", "enum": ["content", "files_with_matches", "count"]},
+        "-B": {"type": "number", "description": "Lines of context before each match."},
+        "-A": {"type": "number", "description": "Lines of context after each match."},
+        "-C": {"type": "number", "description": "Lines of context around each match."},
+        "-n": {"type": "boolean", "description": "Show line numbers."},
+        "-i": {"type": "boolean", "description": "Ignore case."},
+        "type": {"type": "string", "description": "A file type to search, such as py."},
+        "head_limit": {"type": "number", "description": "Return only the first N results."},
+        "multiline": {"type": "boolean", "description": "Let a pattern span lines."}
+      },
+      "required": ["pattern"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "NotebookEdit",
+    "description": "Replace, insert or delete a cell of a Jupyter notebook.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "notebook_path": {"type": "string", "description": "Absolute path of the notebook."},
+        "cell_id": {"type": "string", "description": "The cell to change, or to insert after."},
+        "new_source": {"type": "string", "description": "The new cell content."},
+        "cell_type": {"type": "string", "enum": ["code", "markdown"]},
+        "edit_mode": {"type": "string", "enum": ["replace", "insert", "delete"]}
+      },
+      "required": ["notebook_path", "new_source"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "Read",
+    "description": "Read a file, optionally a range of its lines.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_path": {"type": "string", "description": "Absolute path of the file."},
+        "offset": {"type": "number", "description": "The line to start from."},
+        "limit": {"type": "number", "description": "How many lines to read."}
+      },
+      "required": ["file_path"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "Skill",
+    "description": "Run a named skill.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "command": {"type": "string", "description": "The name of the skill."}
+      },
+      "required": ["command"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "SlashCommand",
+    "description": "Run a custom slash command.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "command": {"type": "string", "description": "The command with its arguments."}
+      },
+      "required": ["command"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "TodoWrite",
+    "description": "Replace the task list the agent keeps for the current work.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "todos": {
+          "type": "array",
+          "description": "The full, updated list.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "content": {"type": "string", "minLength": 1},
+              "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]},
+              "activeForm": {"type": "string", "minLength": 1}
+            },
+            "required": ["content", "status", "activeForm"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["todos"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "WebFetch",
+    "description": "Fetch a web page and answer a question about it.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "url": {"type": "string", "format": "uri", "description": "The page to fetch."},
+        "prompt": {"type": "string", "description": "What to extract from the page."}
+      },
+      "required": ["url", "prompt"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "WebSearch",
+    "description": "Search the web and return the results.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": {"type": "string", "minLength": 2, "description": "The search query."},
+        "allowed_domains": {"type": "array", "items": {"type": "string"}, "description": "Only these domains."},
+        "blocked_domains": {"type": "array", "items": {"type": "string"}, "description": "Never these domains."}
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "Write",
+    "description": "Write a file, replacing it if it exists.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_path": {"type": "string", "description": "Absolute path of the file."},
+        "content": {"type": "string", "description": "The full content."}
+      },
+      "required": ["file_path", "content"],
+      "additionalProperties": false
+    }
+  }
+]

@@ -22,3 +22,9 @@ difficulty = "easy"
 category = "backend"
 agent_timeout_sec = 10800
 verifier_timeout_sec = 900
+
+# The local route's allowlist for the agent (D-050): the local server and the
+# Collector on the host, and the package index. The default build keeps the
+# open network; `--route local` builds task-01-local with this list.
+[network]
+agent_allowed_hosts_local = ["host.docker.internal", "pypi.org", "files.pythonhosted.org"]
