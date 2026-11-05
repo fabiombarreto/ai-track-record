@@ -1,0 +1,457 @@
+diff --git a/documentation/research/local-route.md b/documentation/research/local-route.md
+index 2899437..6e6c776 100644
+--- a/documentation/research/local-route.md
++++ b/documentation/research/local-route.md
+@@ -1,6 +1,6 @@
+ # Local route results: the machine and the compatibility checks
+ 
+-> **Status:** In progress · **Last updated:** 2026-11-04 · **Owner:** Fabio Martins Barreto
++> **Status:** In progress · **Last updated:** 2026-11-05 · **Owner:** Fabio Martins Barreto
+ 
+ This report records the local model route ([plan](../plans/local-models.md), D-031, D-057, D-058): what the operator's machine can serve, measured before the route is configured, and later the compatibility checks of the route. Target A, the codename of the private target, is not described here; the benchmark prompt is random words and holds no target content.
+ 
+@@ -12,7 +12,7 @@ This report records the local model route ([plan](../plans/local-models.md), D-0
+ | WP0: choices recorded in `infra/local-inference/models.toml` (quantization, context, experts on the CPU, slots) | Done | 2026-11-04 |
+ | WP1: the server's checks (key, loopback, prompt cache, flags); check L1 passed for L-Small and L-MoE | Done | 2026-11-04 |
+ | WP2: the harness changes | Done: the agent's route option and its check run (the run failed at the server's chat template, see Agent route), the launcher and allowlists (see Launcher and allowlists), and the store, budget and export (see Store, budget and export) | 2026-11-04 |
+-| WP3: the compatibility checks on the synthetic task | Not started | |
++| WP3: the compatibility checks on the synthetic task | Done: checks L1 to L10 have a result, with a fallback where one is not a pass (see Compatibility checks), and the relay probe ran (see The relay probe) | 2026-11-05 |
+ 
+ ## Machine baseline
+ 
+@@ -216,7 +216,7 @@ Into every trial folder, `server/` holds `server.json`, `slots.json`, `metrics.p
+ | Real local trials (3, Phases 3 and 4) | Loaded with route `local`, source `local`, cost 0, build `b12063`, quantization `q4_k_m`, outcome `error` with native reason `server_error` (the chat template's HTTP 500), server counts 0; the Phase 4 trial carries 2.269 Wh (the Phase 3 trials had no power record) |
+ | The MVP's numbers | Unchanged: 35 trials and US$ 149.80889974 over `m2-` and `m3-` jobs before and after; the budget's spent total US$ 163.81 is the same, with the `lc-` line added |
+ | Export of the two local jobs | Passed the leak check, with route and label, into a temporary folder and a temporary publication record; the real `publications.jsonl` stayed at 2 lines |
+-| Matching on a completed local run | Waits for check L7 in Phase 6: no local run has completed a request yet |
++| Matching on a completed local run | Checked in Phase 6 (check L7): the two vanilla runs match; the relay probe differs by 3 input tokens |
+ 
+ ## Compatibility checks
+ 
+@@ -226,6 +226,50 @@ The check is run by `atr.local.probe` on a synthetic request: a streamed Message
+ |---|---|---|---|---|
+ | L1 | L-Small (qwen3.5-9b-q4_k_m) | Pass | 2026-11-04 | HTTP 200, complete event stream, stop reason `end_turn`, blocks thinking (415 characters) and text (122), no error event; `/slots` shows temperature 0.6, top-p 0.95, top-k 20, min-p 0, presence penalty 0; marker not in the log. No thinking-off retry was needed |
+ | L1 | L-MoE (qwen3.6-35b-a3b-ud-q3_k_xl) | Pass | 2026-11-04 | Loaded with `--cache-ram 2048`; HTTP 200, complete event stream, stop reason `end_turn`, blocks thinking (1488 characters) and text (107), no error event; the same sampling applied; marker not in the log. No thinking-off retry was needed |
+-| L2 to L10 | | | | Phase 6. Early evidence from the Phase 3 check run, without marking a check as run: L2 (the real request shape) reached the server and was rejected by the chat template (a late system message, HTTP 500); L3 (tool calls) was never reached; L7 (no request names a Claude model) held, with the alias as the only model name in the run |
++| L1 | L-Small on the override | Pass | 2026-11-05 | The same request on the server started with the pinned template override (digest checked at the start, recorded in `server.json`): HTTP 200, complete event stream, stop reason `end_turn`, blocks thinking (304 characters) and text (115), no error event, marker not in the log |
++| L2 | L-Small, L-MoE, relay probe | Pass | 2026-11-05 | Every request event that names a model names the alias: 257 in the L-Small vanilla run (`qwen3.5-9b`), 39 in the L-MoE vanilla run and 36 in the relay probe (`qwen3.6-35b-a3b`); every assistant message of the three runs (395, 80 and 71) carries the alias, and `modelUsage` has one key per run. Claude Code logs one `unrecognized_model` notice per run and does not substitute another model. The relay probe's calls are in the same events, with no other model name |
++| L3 | L-Small | Pass | 2026-11-05 | 143 tool calls (Read 34, Write 9, Edit 38, Bash 62), every input a JSON object, none leaked into text as a `<tool_call>` block, 143 results. 39 results are errors of the task's own commands (exit codes, a string not found), not malformed calls. No stalled stream and no server error (0 HTTP 500). It needs the template override: without it the first request fails (see The template finding) |
++| L3 | L-MoE | Pass | 2026-11-05 | 41 tool calls (Read 21, Bash 15, Edit 5), all well formed, none leaked into text; 4 error results from commands. No stalled stream or server error. The run stopped with 5 of 7 criteria satisfied (reward 0), a quality result and not a tool-call defect |
++| L4 | L-Small | Pass | 2026-11-05 | Claude Code compacted automatically twice, at 100428 and 103781 tokens (window 131072), down to 12093 and 10265; the largest context the server held was 126960 tokens; no context error. The first compaction took 1262 s (one summary request generated about 27000 tokens before it ended) and the second 181 s; the server did not time out |
++| L4 | L-MoE | Pass | 2026-11-05 | No compaction was needed: the largest context was 40729 tokens, and no request failed with a context error. Compaction was seen on the relay probe |
++| L4 | Relay probe (L-MoE) | Pass | 2026-11-05 | Three automatic compactions at 100412, 103160 and 98026 tokens, down to 55052, 67312 and 28638 (210.6 s, 46.0 s and 198.2 s); the largest context was 99020 tokens; no context error |
++| L5 | L-Small | Pass | 2026-11-05 | 271760 prompt tokens processed against 6921070 cached (3.8 percent processed) over 139 requests. Consecutive turns select the slot with similarity 0.99 or more; only requests whose prompt differs (the compaction requests, 0.163 to 0.504) reprocess most of the context. No setting needs to change; if compaction time matters in the pilots, the next setting to try is a larger `--cache-ram` |
++| L5 | L-MoE | Pass | 2026-11-05 | 37145 tokens processed against 833123 cached (4.3 percent) over 26 requests; slot similarity 0.537 or more throughout |
++| L5 | Relay probe (L-MoE) | Partial | 2026-11-05 | 231985 tokens processed against 1011040 cached (18.7 percent) over 21 requests. Reuse between ordinary turns holds; the requests after a compaction have similarity down to 0.201 and reprocess most of the context (1501.6 s of prompt processing in all). Fallback (section 13 of the plan): no setting was changed; the next to try is more prompt-cache RAM, and the runs are slower meanwhile |
++| L6 | L-Small, L-MoE, relay probe | Pass | 2026-11-05 | The unchanged verifier graded all three: L-Small reward 1.0 (7 of 7 criteria, existing tests pass), L-MoE reward 0.0 (5 of 7 criteria, 0.7143, existing tests pass), relay probe reward 0.0 (0 criteria, no changes, existing tests pass). The skipped-step check on the relay probe: not flagged, 0 skipped steps. The independent review ran on the L-Small trial (11 findings, US$ 0.206) and on the L-MoE trial (10 findings, US$ 0.173); the relay probe had no changes and was not reviewed, so two of the three approved reviews were used. Static analysis was not part of this phase and was not run: `new_static_findings` is null for these trials |
++| L7 | L-Small | Pass | 2026-11-05 | Reconciliation `match` over 139 requests: the SDK's `modelUsage`, Claude Code's events and metrics and the server's counters agree on 271760 processed plus 6921070 cached input tokens and 113739 output tokens |
++| L7 | L-MoE | Pass | 2026-11-05 | Reconciliation `match` over 26 requests: 37145 processed plus 833123 cached input tokens and 9105 output tokens |
++| L7 | Relay probe (L-MoE) | Partial | 2026-11-05 | Reconciliation `mismatch` over 21 requests, recorded as it is. The SDK, the events and the metrics agree (231985 processed plus 1011043 cached input tokens, 9171 output tokens); the server's counters give 1243025 input tokens in all against 1243028, 3 tokens (0.0002 percent), and the same output. The cause is not isolated; the three compactions are the likely place. The comparison was not loosened. The operator can accept a tolerance of a few tokens or ask for the cause |
++| L8 | L-Small, L-MoE, relay probe, limit runs | Partial | 2026-11-05 | The SDK's cost for a model it cannot price is recorded as an estimate and not as money (US$ 7.66, 0.83 and 1.89, loaded with source `local` and cost 0); no run used a USD cap. The time limit works as in the MVP: a 108 s agent limit ended the run as `timed_out` (`AgentTimeoutError`). The turn limit stops the run (`error_max_turns` at a limit of 2) but the SDK raises its result as an error, the runner writes no `agent/result.json`, and the store gives outcome `error` with native reason `NonZeroAgentExitCodeError` instead of `budget_exceeded`. Fallback: an operator decision, to let the runner write the result file for an `error_max_turns` result before it fails (a change outside this phase); until then a local turn-limit stop reads as `error` |
++| L9 | L-Small, L-MoE, relay probe, limit runs | Pass | 2026-11-05 | The `network` record in `route.json` of every local run after the change: Anthropic's API unreachable (no HTTP status, curl exit code 35) and the package index reachable (HTTP 200); the server answered the run's own pre-flight check |
++| L10 | L-Small | Partial | 2026-11-05 | The server stayed up through the 58 minute run (3502 s of agent time) with no error, at a VRAM peak of 8001 of 8192 MiB; the container held 5.3 GiB of the VM's 17.6 GiB at the start; GPU power 186.8 W mean, 184.6 Wh. The three-hour run was not reached: the longest run took 62 minutes |
++| L10 | L-MoE and relay probe | Partial | 2026-11-05 | The server stayed up through a 17 minute and a 37 minute run, with a VRAM peak of 6763 and 7509 MiB and 12.3 and 12.9 GiB of the VM's 17.6 GiB at the start; no out-of-memory stop. The first request of a fresh L-MoE server spent about five minutes before its first token (the experts are read from the memory-mapped file). The three-hour run was not reached; the pilot on the largest task is that test (section 13 of the plan) |
+ 
+ After each request a `serve record` snapshot was taken and the key was found in none of its files or in the check results; the probe's own log check found no marker.
++
++## The template finding
++
++A debug run (L-Small, one turn, the server's verbose log on) found the cause of the HTTP 500 that ended every earlier local run. Every request Claude Code sends reaches the server as three messages after the server's conversion from the Messages API: a system message of 4153 characters (the `system` field), a user message of four text blocks, and a second system message of 8244 characters (the environment and working-directory section of the prompt) after it. The server's conversion puts the top-level `system` field first, so the second system message is a system-role turn that arrives inside the request's messages. All 11 requests of the run had this shape, with 18 tools, and all were rejected with HTTP 500 by the template of Qwen3.5-9B, which raises "System message must be at the beginning." for a system message that is not first (line 85 of the embedded template). The finding is recorded, structure only, in `l3-template-<stamp>.json` under `$ATR_DATA_DIR/local-inference/checks`; the verbose log, which holds the synthetic task's prompt text, stays in that trial's `server` folder. The raw Messages API request is not in the log, so the system-role turn is inferred from the order and the sizes.
++
++The fix is within the plan's fallbacks: a pinned override of the model's own template. `infra/local-inference/templates/qwen3.5-9b-q4_k_m.jinja` is the template read from the server's `/props`, with one change: a system message that is not first is rendered in place as a system turn in the template's own format, instead of raising (deleting the raise alone would drop the message silently). The file starts with a comment naming its source (`unsloth/Qwen3.5-9B-GGUF` at revision `3885219b6810b007914f3a7950a8d1b469d598a5`), its license (Apache 2.0), the date (2026-11-04) and the change. Its SHA-256 is `a4080a6ecb3b1ed244e0a98d028f45c1634225363cb38998375b7d5402889921`, pinned as `chat_template_sha256` in `models.toml`. The launcher mounts the folder read-only at `/templates`; a start fails before any container starts if a `--chat-template-file` is not under `/templates/` or its digest differs from the entry's, and `server.json` records the digest.
++
++L-MoE (Qwen3.6-35B-A3B) needs no override: its embedded template merges up to two leading system messages and does not raise. A system message that follows a user message is not rendered at all, so that model runs without the environment section of Claude Code's prompt (the working directory and the like) in its context. This is recorded here and not corrected; it is a difference between the two models' runs to keep in mind when comparing them.
++
++## The relay probe
++
++The relay probe ran relay 0.49.0 (the MVP's copy at digest `0a9da7c2afdc64d633974cd82fc38b3b260fc01ae1e7c844fd749d3724c81e77`) on L-MoE with `/relay:relay-execute PRPs/prds/event-registration.prd.md` on the synthetic task's local variant. Outcome: the SDK ended with `success` after 45 turns and 2198.7 s, and the workflow did not run. The model read the project's context and answered that it was ready, with no change to the tree (an empty patch), no relay phase started and no orchestrator record, so the store's protocol check has no halt code to report (`protocol_checked` true, 0 skipped steps, not flagged). The verifier gave reward 0 with 0 criteria. It is recorded as a completed run that did not execute the workflow, not as a halt: relay's slash command was recognized (the plugin loaded, with no error), and the model stopped before carrying out the orchestration.
++
++Figures: 231985 processed and 1011040 cached input tokens, 9171 output tokens, 41 tool calls (Read 33, Bash 8), three automatic compactions, 52.4 Wh, peak VRAM 7509 MiB. A model of this size, at this quantization, does not follow relay's orchestration on its own in this run. Whether another prompt or a larger model does is not tested here.
++
++## The runs
++
++| Job | Model | Outcome (native) | Reward (criteria) | Turns | Wall time (s) | Input tokens (processed + cached) | Output tokens | Energy (Wh) |
++|---|---|---|---|---|---|---|---|---|
++| `lc-p6-debug-l-small-synthetic-task-01-local` | L-Small | error (`server_error`) | 0.0 (0 of 7) | 0 | about 230 | 0 | 0 | not recorded (run by hand) |
++| `lc-p6-vanilla-l-small-synthetic-task-01-local` | L-Small | completed (`success`) | 1.0 (7 of 7) | 147 | 3502 | 7192830 (271760 + 6921070) | 113739 | 184.6 |
++| `lc-p6-vanilla-l-moe-synthetic-task-01-local` | L-MoE | completed (`success`) | 0.0 (5 of 7) | 42 | 994 | 870268 (37145 + 833123) | 9105 | 15.5 |
++| `lc-p6-relay049-l-moe-synthetic-task-01-local` | L-MoE | completed (`success`), workflow not run | 0.0 (0 of 7) | 45 | 2199 | 1243025 (231985 + 1011040) | 9171 | 52.4 |
++| `lc-p6-limit-turns-l-small-synthetic-task-01-local` | L-Small | error (`NonZeroAgentExitCodeError`; the SDK's `error_max_turns`, limit 2) | 0.0 (0 of 7) | 2 (limit) | 219 | 37364 (21852 + 15512) | 292 | 5.6 |
++| `lc-p6-limit-time-l-small-synthetic-task-01-local` | L-Small | timed_out (`AgentTimeoutError`, 108 s) | 0.0 (0 of 7) | 1 request | 160 | 36851 (21336 + 15515) | 60 | 3.9 |
++
++Reviews: two, on the two vanilla runs, US$ 0.379 together, counted on the `lc-` line of the budget (`atr.ops.budget`), which also shows the SDK's estimate of US$ 10.39 for the local jobs as not money spent; the MVP's total of US$ 163.81 is unchanged. L-Small solved the task in one hour with two compactions; L-MoE at 3-bit stopped early with a partial solution; neither result ranks the models (one run each, different quantizations, the late system message rendered for one and dropped for the other).
+diff --git a/harness/src/atr/agents/claude_sdk.py b/harness/src/atr/agents/claude_sdk.py
+index 1bc8cf6..3a0a736 100644
+--- a/harness/src/atr/agents/claude_sdk.py
++++ b/harness/src/atr/agents/claude_sdk.py
+@@ -209,10 +209,12 @@ class ClaudeAgentSdk(BaseInstalledAgent):
+ 
+     async def _check_local_server(
+         self, environment: BaseEnvironment, env: dict[str, str]
+-    ) -> None:
++    ) -> dict[str, dict]:
+         """Fail the trial before any model call if the container cannot use the local server.
+ 
+-        The key travels in the exec's environment, never in a command string.
++        The key travels in the exec's environment, never in a command string. Returns the
++        network record for route.json (check L9): whether Anthropic's API and the package
++        index answer from the container. Those two probes never fail the run.
+         """
+         url = env["ANTHROPIC_BASE_URL"]
+         model = env["ANTHROPIC_MODEL"]
+@@ -255,8 +257,29 @@ class ClaudeAgentSdk(BaseInstalledAgent):
+                 f"the local server serves {', '.join(map(str, ids)) or 'nothing'}, not {model}"
+             )
+ 
++        # Evidence for check L9: a bare request with no key, header or body, run without the
++        # route's environment. A blocked host fails the connection; that is the expected answer.
++        network: dict[str, dict] = {}
++        for host, url in (
++            ("api.anthropic.com", "https://api.anthropic.com/"),
++            ("pypi.org", "https://pypi.org/simple/"),
++        ):
++            probe = await environment.exec(
++                command=f"curl -sS -m 10 -o /dev/null -w '%{{http_code}}' {url}"
++            )
++            code = ((probe.stdout or "").strip().splitlines() or [""])[-1]
++            if probe.return_code == 0 and code.isdigit() and code != "000":
++                network[host] = {"http_status": int(code), "curl_exit_code": 0}
++            else:
++                network[host] = {"http_status": None, "curl_exit_code": probe.return_code}
++        return network
++
+     def _record_route(
+-        self, model: str, server: dict | None, env: dict[str, str]
++        self,
++        model: str,
++        server: dict | None,
++        env: dict[str, str],
++        network: dict[str, dict] | None = None,
+     ) -> None:
+         """Write route.json: where the run's requests went and with which settings."""
+         if self.options.route != "local" or server is None:
+@@ -305,6 +328,7 @@ class ClaudeAgentSdk(BaseInstalledAgent):
+                 )
+             },
+             "thinking": thinking,
++            "network": network,
+             "settings": {
+                 name: ("<set>" if name == "ANTHROPIC_AUTH_TOKEN" else value)
+                 for name, value in self._route_env(model, server, "x").items()
+@@ -434,9 +458,10 @@ class ClaudeAgentSdk(BaseInstalledAgent):
+         if self.options.otel_endpoint:
+             await self._check_collector(environment, self.options.otel_endpoint)
+             env |= self._telemetry_env(self.options.otel_endpoint)
++        network = None
+         if self.options.route == "local":
+-            await self._check_local_server(environment, env)
+-        self._record_route(model, server, env)
++            network = await self._check_local_server(environment, env)
++        self._record_route(model, server, env, network)
+ 
+         args = [
+             f"{VENV_DIR}/bin/python",
+diff --git a/harness/src/atr/local/serve.py b/harness/src/atr/local/serve.py
+index fab59d8..573ef73 100644
+--- a/harness/src/atr/local/serve.py
++++ b/harness/src/atr/local/serve.py
+@@ -15,6 +15,9 @@ the server refuses requests that lack the key (count_tokens, /slots and
+ /metrics), Docker publishes the port on 127.0.0.1 only and the key is absent
+ from the record. A start also fails, before any container starts, unless
+ --offline is among the flags and no download flag is.
++A model's chat-template override lives in infra/local-inference/templates, mounted
++read-only at /templates; the start refuses a template whose SHA-256 differs from the
++model entry's chat_template_sha256, and server.json records that digest.
+ 
+ `record <folder>` copies the running server's state into a folder the launcher
+ names: server.json, slots.json (every slot's prompt and generated text removed,
+@@ -23,6 +26,7 @@ the key would appear in any of them.
+ """
+ 
+ import argparse
++import hashlib
+ import json
+ import os
+ import secrets
+@@ -36,19 +40,45 @@ from pathlib import Path
+ from atr.local import config
+ 
+ CONTAINER = "atr-llm"
++TEMPLATES_MOUNT = "/templates"
+ DOWNLOAD_FLAGS = {
+     "-hf", "--hf-repo", "-hfr", "--hf-file", "-hff", "-hft", "--hf-token",
+     "-mu", "--model-url", "-dr", "--docker-repo",
+ }
+ 
+ 
+-def check_args(args: list[str]) -> None:
+-    """Fail unless the server is offline: --offline present and no download flag."""
++def templates_folder() -> Path:
++    """The pinned chat-template overrides, in the repository's infra folder."""
++    return Path(__file__).resolve().parents[4] / "infra" / "local-inference" / "templates"
++
++
++def check_args(args: list[str], entry: dict | None = None, templates_dir: Path | None = None) -> None:
++    """Fail unless the server is offline: --offline present and no download flag.
++
++    A --chat-template-file must name a file under /templates/ whose SHA-256 equals the
++    model entry's chat_template_sha256 (the pinned override), else the start is refused.
++    """
+     if "--offline" not in args:
+         raise SystemExit("the server flags lack --offline; a start that could reach the network is refused")
+     found = sorted({a.split("=", 1)[0] for a in args} & DOWNLOAD_FLAGS)
+     if found:
+         raise SystemExit(f"download flags are refused: {found}")
++    for index, arg in enumerate(args):
++        if arg.split("=", 1)[0] != "--chat-template-file":
++            continue
++        value = arg.split("=", 1)[1] if "=" in arg else (args[index + 1] if index + 1 < len(args) else "")
++        if not value.startswith(TEMPLATES_MOUNT + "/"):
++            raise SystemExit(f"--chat-template-file must name a file under {TEMPLATES_MOUNT}/: {value}")
++        pinned = (entry or {}).get("chat_template_sha256")
++        path = (templates_dir or templates_folder()) / value.removeprefix(TEMPLATES_MOUNT + "/")
++        try:
++            digest = hashlib.sha256(path.read_bytes()).hexdigest()
++        except OSError as error:
++            raise SystemExit(f"the chat template {value} cannot be read: {error}")
++        if not pinned or digest != pinned:
++            raise SystemExit(
++                f"the chat template {path.name} has digest {digest}, not the pinned {pinned}; start refused"
++            )
+ 
+ 
+ def status(port: int, path: str, key: str | None = None, body: dict | None = None) -> int:
+@@ -146,7 +176,7 @@ def start(model_id: str, port: int, context: int | None, extra: list[str], timeo
+         *entry["args"],
+         *extra,
+     ]
+-    check_args(args)
++    check_args(args, entry)
+     key = secrets.token_urlsafe(32)
+     vram_before = gpu_memory_used()
+     started = time.monotonic()
+@@ -154,6 +184,7 @@ def start(model_id: str, port: int, context: int | None, extra: list[str], timeo
+         ["docker", "run", "--detach", "--name", CONTAINER, "--gpus", "all",
+          "--publish", f"127.0.0.1:{port}:8080",
+          "--volume", f"{weights_dir}:/models:ro",
++         "--volume", f"{templates_folder()}:{TEMPLATES_MOUNT}:ro",
+          "--env", server["api_key_env"],
+          server["image"], *args],
+         check=True, env={**os.environ, server["api_key_env"]: key}, stdout=subprocess.DEVNULL,
+@@ -200,6 +231,7 @@ def start(model_id: str, port: int, context: int | None, extra: list[str], timeo
+         "commit": server["commit"],
+         "context": context,
+         "args": args,
++        "chat_template_sha256": entry.get("chat_template_sha256"),
+         "offline": True,
+         "key_checked": ["/v1/messages/count_tokens", "/slots", "/metrics"],
+         "port": port,
+diff --git a/harness/src/atr/store/load.py b/harness/src/atr/store/load.py
+index fe91bfc..8de7e55 100644
+--- a/harness/src/atr/store/load.py
++++ b/harness/src/atr/store/load.py
+@@ -355,13 +355,15 @@ def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path, verdicts: dict)
+         exception_type = exception.get("exception_type") if exception else None
+         outcome = normalize_outcome(exception_type, agent.get("subtype"))
+         native = agent.get("subtype")
+-        if exception and native is None:
+-            native = failure_cause(exception, trial_dir)
+         route_record = read_json(trial_dir / "agent" / "route.json")
+         power = read_json(trial_dir / "server" / "power.json")
+         counters = server_counters(trial_dir / "server" / "metrics.prom")
+         route = (route_record.get("provider") or kwargs.get("route")
+                  or ("anthropic" if agent.get("subtype") is not None else None))
++        if route == "local" and exception and native is None:
++            # Only local runs get a native reason for a failure before an SDK result; the
++            # other routes keep the exported field as it was (the SDK's subtype, or null).
++            native = failure_cause(exception, trial_dir)
+         sdk_cost = agent.get("total_cost_usd")
+         if route == "local":
+             # No API cost: the SDK's own figure is an estimate for a model it cannot price.
+diff --git a/infra/local-inference/models.toml b/infra/local-inference/models.toml
+index c597a26..2cc96e6 100644
+--- a/infra/local-inference/models.toml
++++ b/infra/local-inference/models.toml
+@@ -119,8 +119,13 @@ size = 5680522464
+ sha256 = "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
+ context = 131072
+ baseline = "qwen3.5-9b-q4_k_m-20261104T192021Z.json"
++# The embedded template raises on a system message that is not first, which Claude Code
++# sends (Phase 6, check L3). The override renders it in place; the start refuses a file
++# whose SHA-256 differs from this one. L-MoE's embedded template does not raise, so it has none.
++chat_template_sha256 = "a4080a6ecb3b1ed244e0a98d028f45c1634225363cb38998375b7d5402889921"
+ args = [
+     "--n-gpu-layers", "999",
++    "--chat-template-file", "/templates/qwen3.5-9b-q4_k_m.jinja",
+     # Prompt-cache RAM in MiB: the container peaked at about 5.6 GiB of the VM's
+     # 17.6 GiB, so 4 GiB fits beside the task container and the others. Check L5
+     # revisits it.
+diff --git a/infra/local-inference/templates/qwen3.5-9b-q4_k_m.jinja b/infra/local-inference/templates/qwen3.5-9b-q4_k_m.jinja
+new file mode 100644
+index 0000000..bec181a
+--- /dev/null
++++ b/infra/local-inference/templates/qwen3.5-9b-q4_k_m.jinja
+@@ -0,0 +1,162 @@
++{#- Override of the chat template embedded in the GGUF of qwen3.5-9b-q4_k_m.
++    Source: unsloth/Qwen3.5-9B-GGUF at revision 3885219b6810b007914f3a7950a8d1b469d598a5 (the template read from the server's /props).
++    License: Apache 2.0 (the model's license).
++    Date: 2026-11-04.
++    The one change: a system message that is not first is rendered in place as a system turn (in the template's own turn format)
++    instead of raising "System message must be at the beginning." Claude Code sends a system-role turn after the first user message.
++    Nothing else differs from the embedded template. Pinned by chat_template_sha256 in infra/local-inference/models.toml. -#}
++{%- set image_count = namespace(value=0) %}
++{%- set video_count = namespace(value=0) %}
++{%- macro render_content(content, do_vision_count, is_system_content=false) %}
++    {%- if content is string %}
++        {{- content }}
++    {%- elif content is iterable and content is not mapping %}
++        {%- for item in content %}
++            {%- if 'image' in item or 'image_url' in item or item.type == 'image' %}
++                {%- if is_system_content %}
++                    {{- raise_exception('System message cannot contain images.') }}
++                {%- endif %}
++                {%- if do_vision_count %}
++                    {%- set image_count.value = image_count.value + 1 %}
++                {%- endif %}
++                {%- if add_vision_id %}
++                    {{- 'Picture ' ~ image_count.value ~ ': ' }}
++                {%- endif %}
++                {{- '<|vision_start|><|image_pad|><|vision_end|>' }}
++            {%- elif 'video' in item or item.type == 'video' %}
++                {%- if is_system_content %}
++                    {{- raise_exception('System message cannot contain videos.') }}
++                {%- endif %}
++                {%- if do_vision_count %}
++                    {%- set video_count.value = video_count.value + 1 %}
++                {%- endif %}
++                {%- if add_vision_id %}
++                    {{- 'Video ' ~ video_count.value ~ ': ' }}
++                {%- endif %}
++                {{- '<|vision_start|><|video_pad|><|vision_end|>' }}
++            {%- elif 'text' in item %}
++                {{- item.text }}
++            {%- else %}
++                {{- raise_exception('Unexpected item type in content.') }}
++            {%- endif %}
++        {%- endfor %}
++    {%- elif content is none or content is undefined %}
++        {{- '' }}
++    {%- else %}
++        {{- raise_exception('Unexpected content type.') }}
++    {%- endif %}
++{%- endmacro %}
++{%- if not messages %}
++    {{- raise_exception('No messages provided.') }}
++{%- endif %}
++{%- if tools and tools is iterable and tools is not mapping %}
++    {{- '<|im_start|>system\n' }}
++    {{- "# Tools\n\nYou have access to the following functions:\n\n<tools>" }}
++    {%- for tool in tools %}
++        {{- "\n" }}
++        {{- tool | tojson }}
++    {%- endfor %}
++    {{- "\n</tools>" }}
++    {{- '\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n<IMPORTANT>\nReminder:\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n- Required parameters MUST be specified\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT>' }}
++    {%- if messages[0].role == 'system' %}
++        {%- set content = render_content(messages[0].content, false, true)|trim %}
++        {%- if content %}
++            {{- '\n\n' + content }}
++        {%- endif %}
++    {%- endif %}
++    {{- '<|im_end|>\n' }}
++{%- else %}
++    {%- if messages[0].role == 'system' %}
++        {%- set content = render_content(messages[0].content, false, true)|trim %}
++        {{- '<|im_start|>system\n' + content + '<|im_end|>\n' }}
++    {%- endif %}
++{%- endif %}
++{%- set ns = namespace(multi_step_tool=true, last_query_index=messages|length - 1) %}
++{%- for message in messages[::-1] %}
++    {%- set index = (messages|length - 1) - loop.index0 %}
++    {%- if ns.multi_step_tool and message.role == "user" %}
++        {%- set content = render_content(message.content, false)|trim %}
++        {%- if not(content.startswith('<tool_response>') and content.endswith('</tool_response>')) %}
++            {%- set ns.multi_step_tool = false %}
++            {%- set ns.last_query_index = index %}
++        {%- endif %}
++    {%- endif %}
++{%- endfor %}
++{%- if ns.multi_step_tool %}
++    {{- raise_exception('No user query found in messages.') }}
++{%- endif %}
++{%- for message in messages %}
++    {%- set content = render_content(message.content, true)|trim %}
++    {%- if message.role == "system" %}
++        {%- if not loop.first %}
++            {{- '<|im_start|>system\n' + content + '<|im_end|>\n' }}
++        {%- endif %}
++    {%- elif message.role == "user" %}
++        {{- '<|im_start|>' + message.role + '\n' + content + '<|im_end|>' + '\n' }}
++    {%- elif message.role == "assistant" %}
++        {%- set reasoning_content = '' %}
++        {%- if message.reasoning_content is string %}
++            {%- set reasoning_content = message.reasoning_content %}
++        {%- else %}
++            {%- if '</think>' in content %}
++                {%- set reasoning_content = content.split('</think>')[0].rstrip('\n').split('<think>')[-1].lstrip('\n') %}
++                {%- set content = content.split('</think>')[-1].lstrip('\n') %}
++            {%- endif %}
++        {%- endif %}
++        {%- set reasoning_content = reasoning_content|trim %}
++        {%- if loop.index0 > ns.last_query_index %}
++            {{- '<|im_start|>' + message.role + '\n<think>\n' + reasoning_content + '\n</think>\n\n' + content }}
++        {%- else %}
++            {{- '<|im_start|>' + message.role + '\n' + content }}
++        {%- endif %}
++        {%- if message.tool_calls and message.tool_calls is iterable and message.tool_calls is not mapping %}
++            {%- for tool_call in message.tool_calls %}
++                {%- if tool_call.function is defined %}
++                    {%- set tool_call = tool_call.function %}
++                {%- endif %}
++                {%- if loop.first %}
++                    {%- if content|trim %}
++                        {{- '\n\n<tool_call>\n<function=' + tool_call.name + '>\n' }}
++                    {%- else %}
++                        {{- '<tool_call>\n<function=' + tool_call.name + '>\n' }}
++                    {%- endif %}
++                {%- else %}
++                    {{- '\n<tool_call>\n<function=' + tool_call.name + '>\n' }}
++                {%- endif %}
++                {%- if tool_call.arguments is mapping %}
++                    {%- for args_name in tool_call.arguments %}
++                        {%- set args_value = tool_call.arguments[args_name] %}
++                        {{- '<parameter=' + args_name + '>\n' }}
++                        {%- set args_value = args_value | tojson | safe if args_value is mapping or (args_value is sequence and args_value is not string) else args_value | string %}
++                        {{- args_value }}
++                        {{- '\n</parameter>\n' }}
++                    {%- endfor %}
++                {%- endif %}
++                {{- '</function>\n</tool_call>' }}
++            {%- endfor %}
++        {%- endif %}
++        {{- '<|im_end|>\n' }}
++    {%- elif message.role == "tool" %}
++        {%- if loop.previtem and loop.previtem.role != "tool" %}
++            {{- '<|im_start|>user' }}
++        {%- endif %}
++        {{- '\n<tool_response>\n' }}
++        {{- content }}
++        {{- '\n</tool_response>' }}
++        {%- if not loop.last and loop.nextitem.role != "tool" %}
++            {{- '<|im_end|>\n' }}
++        {%- elif loop.last %}
++            {{- '<|im_end|>\n' }}
++        {%- endif %}
++    {%- else %}
++        {{- raise_exception('Unexpected message role.') }}
++    {%- endif %}
++{%- endfor %}
++{%- if add_generation_prompt %}
++    {{- '<|im_start|>assistant\n' }}
++    {%- if enable_thinking is defined and enable_thinking is true %}
++        {{- '<think>\n' }}
++    {%- else %}
++        {{- '<think>\n\n</think>\n\n' }}
++    {%- endif %}
++{%- endif %}
+\ No newline at end of file

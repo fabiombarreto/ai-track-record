@@ -1,0 +1,42 @@
+{
+  "outcome": "FAILED_AFTER_N_RETRIES",
+  "attempts_completed": 4,
+  "last_reviewer_verdict": {
+    "verdict": "CHANGES_REQUESTED",
+    "failing": [
+      {
+        "rubric_id": "R-L3",
+        "reason": "Level 3's closing `atr.local.launch <check-run config> --dry-run` exits 1 with 'already exists; a job is never resumed or mixed' (plan Task 3 check (d)): the Task 6 check run created that job folder, so the plan's Level 3 cannot exit 0 after Task 6. The code behaves as the plan specifies; every other rubric item passed on every attempt."
+      }
+    ]
+  },
+  "attempt_history": [
+    {
+      "attempt": 1,
+      "implementer": "IMPLEMENTATION_COMPLETE (L1 PASS, L2 PASS, L3 FAIL; plan_validation_defect claimed but not accepted: prd_refs cited the plan, not the source PRD)",
+      "reviewer": "CHANGES_REQUESTED (R-L3)",
+      "diff": "phase-4/attempts/1/diff.patch"
+    },
+    {
+      "attempt": 2,
+      "implementer": "IMPLEMENTATION_COMPLETE (no code change; L3 FAIL; no defect claimed)",
+      "reviewer": "CHANGES_REQUESTED (R-L3)",
+      "diff": "phase-4/attempts/2/diff.patch (identical to attempt 1)"
+    },
+    {
+      "attempt": 3,
+      "implementer": "IMPLEMENTATION_COMPLETE (no code change; L3 FAIL; no defect claimed)",
+      "reviewer": "CHANGES_REQUESTED (R-L3)",
+      "diff": "phase-4/attempts/3/diff.patch (identical to attempt 1)"
+    },
+    {
+      "attempt": 4,
+      "implementer": "IMPLEMENTATION_COMPLETE (no code change; L3 FAIL; no defect claimed)",
+      "reviewer": "CHANGES_REQUESTED (R-L3)",
+      "diff": "phase-4/attempts/4/diff.patch (identical to attempt 1)"
+    }
+  ],
+  "dispute_history": [],
+  "actionable_recommendation": "The defect is in the APPROVED plan, not the code: its Level 3 (and Task 4) end with `launch <check-run config> --dry-run` on the job whose folder Task 6 creates, which the plan's own Task 3 check (d) requires the launcher to refuse. Revise the plan so that closing dry run uses a config with a fresh job name (or runs before Task 6), re-run /relay-plan-review, then /relay-implement; the implementation in the worktree already passes every other check. Then re-invoke /relay-execute PRPs/prds/local-model-route.prd.md, which resumes at Phase 4 (row 4 is in-progress) after the manual fix, or flip row 4 by hand once the plan is repaired and implemented.",
+  "halted_at": "2026-11-04T22:29:54Z"
+}

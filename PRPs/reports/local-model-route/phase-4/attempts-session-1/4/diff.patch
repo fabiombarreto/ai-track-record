@@ -1,0 +1,445 @@
+diff --git a/documentation/research/local-route.md b/documentation/research/local-route.md
+index 1d7d189..659f92e 100644
+--- a/documentation/research/local-route.md
++++ b/documentation/research/local-route.md
+@@ -11,7 +11,7 @@ This report records the local model route ([plan](../plans/local-models.md), D-0
+ | WP0: weights downloaded and verified onto D:, speeds and power measured at 32k, 64k and 128k | Done | 2026-11-04 |
+ | WP0: choices recorded in `infra/local-inference/models.toml` (quantization, context, experts on the CPU, slots) | Done | 2026-11-04 |
+ | WP1: the server's checks (key, loopback, prompt cache, flags); check L1 passed for L-Small and L-MoE | Done | 2026-11-04 |
+-| WP2: the harness changes | In progress: the agent's route option and its check run are done (the run failed at the server's chat template, see Agent route); the launcher, store and export changes remain | 2026-11-04 |
++| WP2: the harness changes | In progress: the agent's route option and its check run (the run failed at the server's chat template, see Agent route) and the launcher and allowlists (see Launcher and allowlists) are done; the store and export changes remain | 2026-11-04 |
+ | WP3: the compatibility checks on the synthetic task | Not started | |
+ 
+ ## Machine baseline
+@@ -152,6 +152,42 @@ Job `lc-p3-vanilla-l-small-synthetic-task-01`, vanilla, L-Small (`qwen3.5-9b`, Q
+ 
+ What it means for the route: the settings reach Claude Code and its requests reach the local server only. What blocks a finished run is the template of the model's chat format, to be decided in Phase 6 with the thinking setting and the fallbacks (for example a template that accepts a late system message, or the L-MoE model).
+ 
++## Launcher and allowlists
++
++`python -m atr.local.launch <job config> [--model-id <id>] [--port 8090] [--dry-run]` runs one local Harbor job the same way every time. It starts the model's server with a new key, samples the GPU every second, runs `uv run harbor run -c <config> -y` from the Harbor checkout with `HARBOR_TELEMETRY=off` and every `ANTHROPIC_` variable removed from the environment, and always stops the server in a `finally`.
++
++### Refusals
++
++Before anything starts, the launcher refuses:
++
++| Refusal | Check |
++|---|---|
++| Another Harbor job is running (D-058) | Any `harbor run` process that is not the launcher, its ancestors or its descendants; the message names the job's config. It sees processes only: a batch script waiting between runs is not seen, and the budget's `lc-` filter (Phase 5) keeps the money apart either way |
++| The job is not local | The name does not start with `lc-`, an agent is not on route `local` with a `local/<alias>` model, or a task's agent network is not an allowlist without `api.anthropic.com` |
++| The model is not one pinned entry | The alias maps to other than one main-stage entry of `models.toml`, and no `--model-id` with that alias was given |
++| The job folder exists | No job is resumed or mixed |
++
++### What it writes
++
++Into every trial folder, `server/` holds `server.json`, `slots.json`, `metrics.prom` and `server.log` (what `serve record` writes), `power.csv` (seconds from the sampler's start, power in W, VRAM in MiB, GPU use in %) and `power.json` (samples, mean and peak power, energy in Wh, peak VRAM, mean use, the wall-clock start and end, and the number of trials sharing the samples). Into the job folder it writes `launch.json` (the model id, the server image and the weights' SHA-256, Harbor's exit code, the trials recorded, the wall time); Harbor's output goes to `<jobs dir>/<job name>.launch.log`. The launcher scans what it wrote for the server key and exits non-zero if it appears. Power is the GPU's, as `nvidia-smi` reports it; with one trial per job it belongs to that trial, and with more it is shared and the count says so.
++
++### Allowlist variants
++
++`python -m atr.tasks.build <manifest> --route local` builds `<task id>-local`: the agent's allowlist is the manifest's `network.agent_allowed_hosts_local`, or, when that key is absent, `agent_allowed_hosts` without `api.anthropic.com` and with `host.docker.internal`. A manifest with neither key is not built, nor is a list that names `api.anthropic.com` or lacks `host.docker.internal`. The verifier's network is unchanged, `atr-task.json` keeps the task id and adds `"route": "local"`, and the default build is unchanged. The synthetic task's allowlist is the local server and the Collector on the host and the package index (`host.docker.internal`, `pypi.org`, `files.pythonhosted.org`); its default build keeps the open network. Target A's three variants were built in the private workspace, each with its allowlist checked for `host.docker.internal` and without Anthropic's API; none was run.
++
++### Check run
++
++| Item | Value |
++|---|---|
++| Job | `lc-p4-launcher-l-small-synthetic-task-01-local`, L-Small (qwen3.5-9b-q4_k_m), run through the launcher on the synthetic task's local variant |
++| Outcome | Harbor exited 0 with one trial in error: `UnknownApiError`, the same chat template error as in Phase 3 (`System message must be at the beginning`, 11 times in the server log); reward 0.0. Expected, and left to Phase 6 |
++| Records present | `server.json`, `slots.json`, `metrics.prom`, `server.log`, `power.csv` and `power.json` in the trial's `server/`, and `launch.json` in the job folder |
++| Power | 248 samples over about 4 minutes, mean 32.9 W, peak 88.3 W, 2.269 Wh, peak VRAM 8003 MiB, mean use 29% |
++| Refusal | With a stand-in process named like a Harbor job, a dry run refused, named the job and started no server; once the stand-in was killed, the same dry run passed |
++| Cleanup | No `atr-llm` container and no `server.key` remained |
++| Key | The launcher's own scan found the key in none of `launch.json`, the launch log and the trial's `server/` files |
++| Independent review | Not run |
++
+ ## Compatibility checks
+ 
+ The check is run by `atr.local.probe` on a synthetic request: a streamed Messages API request with thinking, two system blocks, a tool set, a tool call and its result, and cache markers, and a random marker that must not appear in the server's log. The tool set is a fixture (`infra/local-inference/claude-code-tools.json`) with the names and input schemas of Claude Code's built-in tools and descriptions of our own; it approximates what Claude Code sends, and checks L2 and L3 use the real requests.
+diff --git a/harness/src/atr/local/launch.py b/harness/src/atr/local/launch.py
+new file mode 100644
+index 0000000..6fc4cb4
+--- /dev/null
++++ b/harness/src/atr/local/launch.py
+@@ -0,0 +1,259 @@
++"""Run one local Harbor job the same way every time, with its server and its power records.
++
++Usage: python -m atr.local.launch <job config .json> [--model-id <id>] [--port 8090] [--dry-run]
++
++The launcher refuses, before anything starts, while any other Harbor job runs
++(the MVP keeps priority over the machine, D-058); unless the job is a local one
++(an lc- name, every agent on route "local" with a local/<alias> model, every
++task's agent behind an allowlist that does not name api.anthropic.com, D-050);
++unless the alias maps to exactly one main-stage model of models.toml (or to the
++--model-id given, which must have that alias); and when the job's folder already
++exists, since no job is resumed or mixed. --dry-run stops after these checks.
++
++Then it starts that model's server with a new key, samples the GPU's power every
++second, and runs Harbor from its checkout with no ANTHROPIC_ variable in the
++environment (the local route sends nothing to Anthropic's API, D-029), writing
++Harbor's output to <jobs dir>/<job name>.launch.log. When Harbor ends it writes,
++into every trial folder, server/ (the server's record, slots, metrics and log, as
++`atr.local.serve record` does) plus server/power.csv (seconds from the sampler's
++start, power in W, VRAM in MiB, GPU use in %) and server/power.json (the summary
++and the wall-clock span), and launch.json into the job's folder (D-033). The
++server is always stopped, also on failure or interruption. Nothing it writes may
++hold the server key: the launcher scans its own outputs for it and exits
++non-zero if it finds it. Exit status is Harbor's, or 1 when a record failed.
++"""
++
++import argparse
++import csv
++import hashlib
++import json
++import os
++import subprocess
++import sys
++import time
++import tomllib
++from datetime import UTC, datetime
++from pathlib import Path
++
++from atr.local import bench, config, serve
++
++ANTHROPIC_HOST = "api.anthropic.com"
++SRC = Path(__file__).resolve().parents[2]
++
++
++def harbor_dir() -> Path:
++    return Path(os.environ.get("ATR_HARBOR_DIR", "~/atr/tools/harbor")).expanduser()
++
++
++def process_table() -> list[tuple[int, int, str]]:
++    out = subprocess.run(["ps", "-eo", "pid=,ppid=,args="], capture_output=True, text=True, check=True).stdout
++    table = []
++    for line in out.splitlines():
++        parts = line.split(None, 2)
++        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
++            table.append((int(parts[0]), int(parts[1]), parts[2]))
++    return table
++
++
++def running_harbor_jobs() -> list[str]:
++    """The `harbor run` processes that are not this launcher, its ancestors or its descendants."""
++    table = process_table()
++    parent = {pid: ppid for pid, ppid, _ in table}
++    mine = {os.getpid()}
++    pid = os.getpid()
++    while pid in parent and parent[pid] not in mine and parent[pid] > 0:
++        pid = parent[pid]
++        mine.add(pid)
++    # Descendants of this process only; an ancestor's other children are not ours.
++    below = {os.getpid()}
++    grew = True
++    while grew:
++        grew = False
++        for child, ppid, _ in table:
++            if ppid in below and child not in below:
++                below.add(child)
++                grew = True
++    mine |= below
++    found = []
++    for pid, _, args in table:
++        if pid in mine or "harbor run" not in args:
++            continue
++        words = args.split()
++        config_path = next((words[i + 1] for i, w in enumerate(words[:-1]) if w in ("-c", "--config")), None)
++        found.append(f"pid {pid} runs {config_path}" if config_path else f"pid {pid} runs `{args[:120]}`")
++    return found
++
++
++def load_job(path: Path) -> dict:
++    try:
++        job = json.loads(path.read_text())
++    except (OSError, json.JSONDecodeError) as error:
++        raise SystemExit(f"{path}: the job config cannot be read: {error}")
++    for key in ("job_name", "jobs_dir"):
++        if not isinstance(job.get(key), str) or not job[key]:
++            raise SystemExit(f"{path}: the job config has no {key}")
++    return job
++
++
++def check_local(job: dict) -> str:
++    """Fail unless the job is a local one; return the alias of its model."""
++    name = job["job_name"]
++    if not name.startswith("lc-"):
++        raise SystemExit(f"{name}: not a local job; its name must start with lc- (D-058)")
++    agents, tasks = job.get("agents") or [], job.get("tasks") or []
++    if not agents or not tasks:
++        raise SystemExit(f"{name}: the job needs at least one agent and one task")
++    aliases = set()
++    for agent in agents:
++        model = agent.get("model_name", "")
++        if (agent.get("kwargs") or {}).get("route") != "local" or not model.startswith("local/"):
++            raise SystemExit(f"{name}: agent {agent.get('name')} is not on route local with a local/<alias> model")
++        aliases.add(model.removeprefix("local/"))
++    if len(aliases) != 1:
++        raise SystemExit(f"{name}: the agents name more than one model: {sorted(aliases)}")
++    for task in tasks:
++        task_toml = Path(task.get("path", "")) / "task.toml"
++        try:
++            agent_network = tomllib.loads(task_toml.read_text()).get("agent", {})
++        except (OSError, tomllib.TOMLDecodeError) as error:
++            raise SystemExit(f"{task_toml}: the task cannot be read: {error}")
++        if agent_network.get("network_mode") != "allowlist" or ANTHROPIC_HOST in agent_network.get("allowed_hosts", []):
++            raise SystemExit(
++                f"{task_toml}: the agent's network must be an allowlist without {ANTHROPIC_HOST}; "
++                "build the task with --route local"
++            )
++    return aliases.pop()
++
++
++def choose_model(alias: str, model_id: str | None) -> str:
++    models = config.load()["models"]
++    if model_id:
++        if config.model({"models": models}, model_id)["alias"] != alias:
++            raise SystemExit(f"{model_id} does not have the alias {alias}")
++        return model_id
++    mains = [i for i, entry in models.items() if entry["alias"] == alias and entry["stage"] == "main"]
++    if len(mains) != 1:
++        raise SystemExit(f"the alias {alias} maps to {len(mains)} main-stage models, not one; pass --model-id")
++    return mains[0]
++
++
++def trial_folders(job_dir: Path) -> list[Path]:
++    if not job_dir.is_dir():
++        return []
++    return sorted(
++        t for t in job_dir.iterdir()
++        if t.is_dir() and ((t / "config.json").exists() or (t / "result.json").exists())
++    )
++
++
++def write_power(trial: Path, samples: list, start: float, summary: dict, span: dict, trials: int) -> None:
++    folder = trial / "server"
++    folder.mkdir(parents=True, exist_ok=True)
++    with (folder / "power.csv").open("w", newline="") as f:
++        writer = csv.writer(f)
++        writer.writerow(["seconds", "power_w", "vram_mib", "gpu_use_pct"])
++        for power, memory, use, at in samples:
++            writer.writerow([round(at - start, 1), power, int(memory), use])
++    record = {**summary, **span, "trials_sharing_samples": trials}
++    (folder / "power.json").write_text(json.dumps(record, indent=2))
++
++
++def run_job(job: dict, config_path: Path, model_id: str, port: int) -> int:
++    jobs_dir = Path(job["jobs_dir"])
++    job_dir = jobs_dir / job["job_name"]
++    jobs_dir.mkdir(parents=True, exist_ok=True)
++    log_path = jobs_dir / f"{job['job_name']}.launch.log"
++    started = time.monotonic()
++    failures: list[str] = []
++    harbor_code = 1
++    record: dict = {}
++    key = ""
++    sampler = None
++    try:
++        record = serve.start(model_id, port, None, [], 1200)
++        key = (config.data_dir() / "server.key").read_text().strip()
++        print(f"server up: {model_id}, key digest {hashlib.sha256(key.encode()).hexdigest()[:12]}")
++        began_at = datetime.now(UTC).isoformat(timespec="seconds")
++        start = time.monotonic()
++        sampler = bench.GpuSampler()
++        env = {k: v for k, v in os.environ.items() if not k.startswith("ANTHROPIC_")}
++        env.update({"HARBOR_TELEMETRY": "off", "PYTHONPATH": str(SRC)})
++        with log_path.open("w") as log:
++            harbor = subprocess.Popen(
++                ["uv", "run", "harbor", "run", "-c", str(config_path), "-y"],
++                cwd=harbor_dir(), env=env, stdout=log, stderr=subprocess.STDOUT,
++            )
++            try:
++                harbor_code = harbor.wait()
++            except BaseException:
++                harbor.terminate()
++                harbor.wait()
++                raise
++        ended_at = datetime.now(UTC).isoformat(timespec="seconds")
++        summary = sampler.stop()
++        samples = list(sampler.samples)
++        sampler = None
++        trials = trial_folders(job_dir)
++        span = {"started_at": began_at, "ended_at": ended_at}
++        for trial in trials:
++            try:
++                serve.snapshot(trial / "server")
++                write_power(trial, samples, start, summary, span, len(trials))
++            except (SystemExit, OSError) as error:
++                failures.append(f"{trial.name}: {error}")
++        job_dir.mkdir(parents=True, exist_ok=True)
++        launch = {
++            "model_id": model_id,
++            "image": record.get("image"),
++            "sha256": record.get("sha256"),
++            "harbor_exit_code": harbor_code,
++            "trials_recorded": len(trials) - len(failures),
++            "trials": len(trials),
++            "record_failures": failures,
++            "wall_seconds": round(time.monotonic() - started, 1),
++        }
++        (job_dir / "launch.json").write_text(json.dumps(launch, indent=2))
++        # Fail closed on the key: nothing the launcher wrote may hold it.
++        written = [job_dir / "launch.json", log_path]
++        for trial in trials:
++            written += [p for p in (trial / "server").glob("*") if p.is_file()]
++        leaked = [p.name for p in written if key in p.read_text(errors="replace")]
++        if leaked:
++            failures.append(f"the server key appears in {leaked}")
++        print(f"harbor exit {harbor_code}; {len(trials)} trial(s); {len(failures)} record failure(s)")
++    finally:
++        if sampler is not None:
++            sampler.stop()
++        serve.stop()
++    for failure in failures:
++        print(f"record failure: {failure}", file=sys.stderr)
++    return harbor_code if not failures else 1
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
++    parser.add_argument("job_config", type=Path)
++    parser.add_argument("--model-id", help="the pinned model (default: the alias's one main-stage model)")
++    parser.add_argument("--port", type=int, default=8090)
++    parser.add_argument("--dry-run", action="store_true", help="run the checks and print what would run")
++    args = parser.parse_args()
++
++    job = load_job(args.job_config)
++    others = running_harbor_jobs()
++    if others:
++        raise SystemExit(
++            "another Harbor job is running; the MVP keeps priority (D-058): " + "; ".join(others)
++        )
++    alias = check_local(job)
++    model_id = choose_model(alias, args.model_id)
++    job_dir = Path(job["jobs_dir"]) / job["job_name"]
++    if job_dir.exists():
++        raise SystemExit(f"{job_dir} already exists; a job is never resumed or mixed")
++    if args.dry_run:
++        print(f"checks passed: would serve {model_id} on port {args.port} and run {job['job_name']} from {args.job_config}")
++        return
++    raise SystemExit(run_job(job, args.job_config.resolve(), model_id, args.port))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/harness/src/atr/tasks/build.py b/harness/src/atr/tasks/build.py
+index e735092..e032525 100644
+--- a/harness/src/atr/tasks/build.py
++++ b/harness/src/atr/tasks/build.py
+@@ -1,6 +1,6 @@
+ """Build a Harbor task folder from a task authored as a pull request.
+ 
+-Usage: python -m atr.tasks.build <task manifest .toml> [--out <directory>]
++Usage: python -m atr.tasks.build <task manifest .toml> [--out <directory>] [--route {anthropic,local}]
+ 
+ The manifest names a target repository, a base ref and a solution ref. The
+ base ref becomes the agent's starting point, as a snapshot with no other git
+@@ -19,6 +19,15 @@ Optional manifest keys:
+   count the findings the run introduced, for example ["ruff"].
+ - network.agent_allowed_hosts and network.verifier_allowed_hosts: Harbor's
+   network allowlist for each phase (default: an open network).
++- network.agent_allowed_hosts_local: the agent's allowlist on the local route.
++  Without it, the local route uses agent_allowed_hosts without
++  api.anthropic.com and with host.docker.internal.
++
++`--route local` builds the variant `<task id>-local`: the agent's allowlist
++comes from the local route's hosts, the verifier's network is unchanged, and
++atr-task.json keeps the task id and adds "route": "local". A local variant
++without an allowlist, or one that names api.anthropic.com or lacks
++host.docker.internal, is not built. The default route builds what it always did.
+ """
+ 
+ import argparse
+@@ -112,7 +121,28 @@ def network_policy(hosts: list[str] | None) -> str:
+     return f'network_mode = "allowlist"\nallowed_hosts = {json.dumps(hosts)}\n'
+ 
+ 
+-def build(manifest_path: Path, out_root: Path) -> Path:
++ANTHROPIC_HOST = "api.anthropic.com"
++LOCAL_HOST = "host.docker.internal"
++
++
++def local_hosts(network: dict) -> list[str] | None:
++    """The agent's allowlist on the local route; None when the manifest has no agent allowlist."""
++    if "agent_allowed_hosts_local" in network:
++        hosts = list(network["agent_allowed_hosts_local"])
++    elif "agent_allowed_hosts" in network:
++        hosts = [h for h in network["agent_allowed_hosts"] if h != ANTHROPIC_HOST]
++        if LOCAL_HOST not in hosts:
++            hosts.append(LOCAL_HOST)
++    else:
++        return None
++    if ANTHROPIC_HOST in hosts:
++        raise SystemExit(f"the local allowlist names {ANTHROPIC_HOST}; a local variant is not built")
++    if LOCAL_HOST not in hosts:
++        raise SystemExit(f"the local allowlist lacks {LOCAL_HOST}; a local variant is not built")
++    return hosts
++
++
++def build(manifest_path: Path, out_root: Path, route: str = "anthropic") -> Path:
+     manifest = tomllib.loads(manifest_path.read_text())
+     target, task = manifest["target"], manifest["task"]
+     network = manifest.get("network", {})
+@@ -120,7 +150,14 @@ def build(manifest_path: Path, out_root: Path) -> Path:
+     templates = manifest_path.parent / "templates"
+     base, solution = task["base_ref"], task["solution_ref"]
+ 
+-    out = out_root / target["name"] / task["id"]
++    name = f"{task['id']}-local" if route == "local" else task["id"]
++    agent_hosts = network.get("agent_allowed_hosts")
++    if route == "local":
++        agent_hosts = local_hosts(network)
++        if agent_hosts is None:
++            raise SystemExit("the manifest has no agent allowlist; a local variant without one is not built")
++
++    out = out_root / target["name"] / name
+     if out.exists():
+         shutil.rmtree(out)
+ 
+@@ -169,6 +206,8 @@ def build(manifest_path: Path, out_root: Path) -> Path:
+         "category": task["category"],
+         "criteria": len(task["criteria"]),
+     }
++    if route == "local":
++        metadata["route"] = "local"
+     write(out / "atr-task.json", json.dumps(metadata, indent=2))
+ 
+     write(out / "instruction.md", INSTRUCTION.format(spec=task["spec"]))
+@@ -176,13 +215,13 @@ def build(manifest_path: Path, out_root: Path) -> Path:
+         out / "task.toml",
+         TASK_TOML.format(
+             target=target["name"],
+-            task_id=task["id"],
++            task_id=name,
+             title=task["title"],
+             difficulty=task["difficulty"],
+             category=task["category"],
+             agent_timeout=task["agent_timeout_sec"],
+             verifier_timeout=task["verifier_timeout_sec"],
+-            agent_network=network_policy(network.get("agent_allowed_hosts")),
++            agent_network=network_policy(agent_hosts),
+             verifier_network=network_policy(network.get("verifier_allowed_hosts")),
+         ),
+     )
+@@ -197,8 +236,9 @@ def main() -> None:
+         type=Path,
+         default=Path(os.environ.get("ATR_DATA_DIR", "~/atr/data")).expanduser() / "tasks",
+     )
++    parser.add_argument("--route", choices=["anthropic", "local"], default="anthropic")
+     args = parser.parse_args()
+-    print(build(args.manifest.resolve(), args.out))
++    print(build(args.manifest.resolve(), args.out, args.route))
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/targets/synthetic-events/task-01.toml b/targets/synthetic-events/task-01.toml
+index b141e75..638e571 100644
+--- a/targets/synthetic-events/task-01.toml
++++ b/targets/synthetic-events/task-01.toml
+@@ -22,3 +22,9 @@ difficulty = "easy"
+ category = "backend"
+ agent_timeout_sec = 10800
+ verifier_timeout_sec = 900
++
++# The local route's allowlist for the agent (D-050): the local server and the
++# Collector on the host, and the package index. The default build keeps the
++# open network; `--route local` builds task-01-local with this list.
++[network]
++agent_allowed_hosts_local = ["host.docker.internal", "pypi.org", "files.pythonhosted.org"]

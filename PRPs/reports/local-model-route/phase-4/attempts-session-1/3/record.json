@@ -1,0 +1,8 @@
+{
+  "attempt": 3,
+  "verdict": "IMPLEMENTATION_COMPLETE",
+  "files_changed": [],
+  "validation": {"level_1": "PASS", "level_2": "PASS", "level_3": "FAIL"},
+  "validation_notes": "No code change. Level 3 fails at its closing launch --dry-run on the check run's existing job folder (plan Task 3 check (d)). No plan validation defect claimed: the source PRD has no line for the existing-folder refusal. Levels 1 and 2 not re-run this attempt.",
+  "base_commit": "0a4c07587ad0024c6045653a24f94f23a1f825b3"
+}

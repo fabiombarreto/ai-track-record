@@ -1,0 +1,483 @@
+diff --git a/documentation/research/local-route.md b/documentation/research/local-route.md
+new file mode 100644
+index 0000000..b01d76a
+--- /dev/null
++++ b/documentation/research/local-route.md
+@@ -0,0 +1,89 @@
++# Local route results: the machine and the compatibility checks
++
++> **Status:** In progress · **Last updated:** 2026-11-04 · **Owner:** Fabio Martins Barreto
++
++This report records the local model route ([plan](../plans/local-models.md), D-031, D-057, D-058): what the operator's machine can serve, measured before the route is configured, and later the compatibility checks of the route. Target A, the codename of the private target, is not described here; the benchmark prompt is random words and holds no target content.
++
++## Progress
++
++| Item | Status | Date |
++|---|---|---|
++| WP0: weights downloaded and verified onto D:, speeds and power measured at 32k, 64k and 128k | Done | 2026-11-04 |
++| WP0: choices recorded in `infra/local-inference/models.toml` (quantization, context, experts on the CPU, slots) | Done | 2026-11-04 |
++| WP1: the server's checks (key, loopback, prompt cache, flags) | Not started | |
++| WP2: the harness changes | Not started | |
++| WP3: the compatibility checks on the synthetic task | Not started | |
++
++## Machine baseline
++
++### The machine during the measurement
++
++The machine is measured as it was in this session: the Windows desktop on the discrete GPU and the containers of other projects running. Neither was changed.
++
++| Item | Value |
++|---|---|
++| GPU | NVIDIA GeForce RTX 3060 Ti, 8192 MiB of VRAM |
++| VRAM in use before the server started | 467 to 947 MiB (the desktop's share, varying between starts) |
++| WSL 2 VM | 17987 MiB of memory (17.57 GiB for containers), 10 processors |
++| VM memory available during the L-MoE runs | about 14.5 to 15.3 GiB, measured as MemAvailable inside the VM, including the page cache |
++| Other containers running | 7 (counted before the server started, not named) |
++| Server | llama.cpp build b12063, commit `2cbca389f515df455412dafa07e2b1359cc72a6d`, CUDA image `ghcr.io/ggml-org/llama.cpp:server-cuda-b12063` pinned by digest `sha256:d5ffba7d096ab0236c65dc147d797b4b7658a7e5425634593373635d661bccda`, image id `sha256:aaacf0f2346a3ae0b6ed509bb67d773b21d4bab2a9babf0139a5bd7abc3ef913` |
++| Server flags | `--flash-attn on`, 8-bit key and value cache, `--parallel 1`, `--ctx-size 131072`, offline, loopback only |
++| Method | One completion per prompt size, prompt cache off, 256 tokens generated, temperature 0, one slot, the prompt a fixed-seed list of random words rescaled to the target token count; GPU power read from `nvidia-smi` every second, energy integrated over the sample times; container memory sampled during the request |
++
++Both main-stage files were verified by size and SHA-256 and sit on D: (`/mnt/d/atr/models`): `Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf` (16.85 GB) and `Qwen3.5-9B-Q4_K_M.gguf` (5.68 GB).
++
++### L-Small: qwen3.5-9b-q4_k_m
++
++Entirely on the GPU, context 131072. Loaded in 60 s; 7920 MiB of VRAM in use after loading. Benchmark file: `qwen3.5-9b-q4_k_m-20261104T192021Z.json`.
++
++| Prompt size | Prompt tokens | Prompt tokens/s | Generation tokens/s | Wall time (s) | GPU power mean / peak (W) | GPU energy (Wh) | Peak VRAM (MiB) | Container peak memory (MiB) |
++|---|---|---|---|---|---|---|---|---|
++| 32k | 32724 | 165.0 | 28.21 | 207.5 | 110.2 / 183.9 | 6.36 | 7989 | 5582 |
++| 64k | 65417 | 108.7 | 26.10 | 611.9 | 106.1 / 196.6 | 18.02 | 7982 | 5602 |
++| 128k | 130058 | 65.9 | 22.09 | 1985.0 | 102.7 / 213.8 | 56.64 | 7983 | 5624 |
++
++An earlier run (`qwen3.5-9b-q4_k_m-20261104T190622Z.json`) measured 32k and 64k at similar speeds (192.8 and 124.6 prompt tokens/s) and recorded the 128k size as failed: the benchmark's first prompt-size estimate came out above the context and the server answered HTTP 400. The benchmark now tokenizes the prompt and rescales it to at most the target, and the table above is the run made after that fix. The speed differences between the two runs are the machine's variation with its other load.
++
++At a full 128k the whole model, its cache and the compute buffers use 7983 of 8192 MiB, leaving about 0.2 GB beside the desktop's share. It ran without a failure, but there is no headroom on the card; the server is the only large user of the GPU while a run is going.
++
++### L-MoE: qwen3.6-35b-a3b-ud-q3_k_xl
++
++Context 131072, the experts of the first N layers on the CPU (`--n-cpu-moe N`), the rest on the GPU. Benchmark file for the chosen value: `qwen3.6-35b-a3b-ud-q3_k_xl-20261104T204406Z.json` (N = 34), loaded in 255 s, 7237 MiB of VRAM in use after loading.
++
++| Prompt size | Prompt tokens | Prompt tokens/s | Generation tokens/s | Wall time (s) | GPU power mean / peak (W) | GPU energy (Wh) | Peak VRAM (MiB) | Container peak memory (MiB) |
++|---|---|---|---|---|---|---|---|---|
++| 32k | 32724 | 125.0 | 13.17 | 281.4 | 75.5 / 121.8 | 5.89 | 7327 | 13670 |
++| 64k | 65417 | 352.9 | 13.32 | 204.7 | 120.6 / 132.3 | 6.85 | 7565 | 10040 |
++| 128k | 130058 | 341.6 | 11.88 | 402.6 | 128.6 / 153.2 | 14.38 | 7429 | 10250 |
++
++The first prompt of a fresh server is slower than the following ones (125 against about 350 prompt tokens/s): the experts on the CPU are read from the memory-mapped file and the first request pays for loading them into the page cache. A run's first request carries that cost.
++
++#### `--n-cpu-moe` values tried
++
++| `--n-cpu-moe` | Outcome | VRAM after loading (MiB) | Container memory after loading | Peak VRAM at the 128k prompt (MiB) | 128k prompt tokens/s | 128k generation tokens/s |
++|---|---|---|---|---|---|---|
++| 36 (first guess) | Loads at 128k context | 6297 | 11.88 GiB of 17.57 GiB | not measured | not measured | not measured |
++| 34, set through `--arg` after the 36 in `models.toml` | Same as 36: the flag appends layers to the overrides, so a lower value after a higher one changes nothing; lowering needs the value in `models.toml` to change | 6296 | 11.83 GiB | not measured | not measured | not measured |
++| 32 | Loads and completes 32k, 64k and 128k; the 128k prompt leaves 220 MiB of VRAM free | 7701 | 11.89 GiB | 7972 | 220.0 | 10.70 |
++| 34 (chosen) | Loads and completes 32k, 64k and 128k; about 0.6 GB of VRAM free at the 128k prompt | 7237 | 13.15 GiB | 7565 (64k), 7429 (128k) | 341.6 | 11.88 |
++
++The 36 and 34 loads on `--arg` were the same configuration, so 36 was not benchmarked. The 32 run (`qwen3.6-35b-a3b-ud-q3_k_xl-20261104T202111Z.json`) is the lowest value that loaded; it was rejected because 220 MiB of free VRAM at the largest prompt leaves no room for the desktop's share to grow. No value failed to load, so the UD-IQ3_XXS fallback and the other containers were not touched. The prompt speeds at 128k differ between 32 and 34 (220 and 342 tokens/s) by more than the layer count explains; the two runs were not made under the same load, so only the memory figures are compared here.
++
++### Choices
++
++| Choice | L-Small | L-MoE | Reason |
++|---|---|---|---|
++| Quantization | Q4_K_M (5.68 GB) | UD-Q3_K_XL (16.85 GB) | The largest main-stage files that load with a context of 128k beside the desktop and the other containers; the 4-bit L-MoE needs a larger WSL memory profile and was not tried |
++| Context | 131072 | 131072 | Both load and complete a full 128k prompt; a larger context (the plan's aim of about 160k) was not tried, because L-Small has 0.2 GB of VRAM left at 128k |
++| Experts on the CPU | none, all layers on the GPU | 34 | The lowest value that keeps about 0.6 GB of VRAM free at a full 128k prompt; 36 wastes VRAM and 32 leaves 220 MiB |
++| Slots | 1 | 1 | The MVP runs one trial at a time (D-058); a second slot would split the context and the memory |
++
++The choices are in `infra/local-inference/models.toml`, with the name of each benchmark file.
++
++### What Phase 2 must still decide
++
++- The prompt-cache RAM budget (`--cache-ram`) and the final server flags, with check L1.
++- Whether the first-request cost of L-MoE (the experts read into the page cache) needs a warm-up request before a run.
++- Whether L-Small's lack of VRAM headroom at 128k needs a lower context for runs that share the machine with the desktop.
++- The limits of the measurement: GPU power only, with no whole-system meter; the desktop and the other containers varied between runs, so the speeds are for this machine in this state, not for the models.
+diff --git a/harness/src/atr/local/bench.py b/harness/src/atr/local/bench.py
+index 6c7a9ca..a78d3f4 100644
+--- a/harness/src/atr/local/bench.py
++++ b/harness/src/atr/local/bench.py
+@@ -4,14 +4,18 @@ Usage: python -m atr.local.bench [--contexts 32768,65536,131072] [--predict 256]
+ 
+ For each prompt size, sends one completion with prompt caching off, so the whole
+ prompt is processed, and records llama.cpp's own timings, the GPU's power and
+-memory sampled every second, the server container's memory and the VM's
+-available memory. The prompt is random words from a fixed seed, nothing from any
+-target. Results go to $ATR_DATA_DIR/local-inference/bench/<model id>-<time>.json.
++memory sampled every second (energy integrates power over the sample times),
++the server container's memory (peak while the request runs, and after it) and
++the VM's available memory. The prompt is random words from a fixed seed, nothing
++from any target. Results go to $ATR_DATA_DIR/local-inference/bench/<model id>-<time>.json,
++rewritten after every prompt size; a size that fails is recorded with an error,
++the others still run, and the exit status is non-zero.
+ """
+ 
+ import argparse
+ import json
+ import random
++import re
+ import string
+ import subprocess
+ import threading
+@@ -20,7 +24,7 @@ import urllib.request
+ from datetime import UTC, datetime
+ 
+ from atr.local import config
+-from atr.local.serve import container_memory
++from atr.local.serve import CONTAINER, container_memory, gpu_memory_used
+ 
+ 
+ def call(port: int, key: str, path: str, body: dict, timeout: int) -> dict:
+@@ -52,7 +56,7 @@ class GpuSampler:
+     """Samples the GPU's power, memory and use every second while it runs."""
+ 
+     def __init__(self) -> None:
+-        self.samples: list[tuple[float, float, int]] = []
++        self.samples: list[tuple[float, float, int, float]] = []
+         self.process = subprocess.Popen(
+             ["nvidia-smi", "--query-gpu=power.draw,memory.used,utilization.gpu",
+              "--format=csv,noheader,nounits", "--loop-ms=1000"],
+@@ -67,7 +71,7 @@ class GpuSampler:
+                 power, memory, use = (float(v) for v in line.split(","))
+             except ValueError:
+                 continue
+-            self.samples.append((power, memory, int(use)))
++            self.samples.append((power, memory, int(use), time.monotonic()))
+ 
+     def stop(self) -> dict:
+         self.process.terminate()
+@@ -76,18 +80,68 @@ class GpuSampler:
+         if not self.samples:
+             return {}
+         powers = [s[0] for s in self.samples]
++        # Power times the interval between consecutive samples; the first sample has no interval.
++        joules = sum(
++            self.samples[i][0] * (self.samples[i][3] - self.samples[i - 1][3])
++            for i in range(1, len(self.samples))
++        )
+         return {
+             "samples": len(self.samples),
+             "power_mean_w": round(sum(powers) / len(powers), 1),
+-            "energy_wh": round(sum(powers) / 3600, 3),
++            "power_peak_w": round(max(powers), 1),
++            "energy_wh": round(joules / 3600, 3),
+             "vram_peak_mib": int(max(s[1] for s in self.samples)),
+             "use_mean_pct": round(sum(s[2] for s in self.samples) / len(self.samples)),
+         }
+ 
+ 
++def mib(line: str) -> float:
++    """The used memory of one docker stats line such as '1.5GiB / 24GiB', in MiB."""
++    found = re.search(r"([\d.]+)\s*([KMGT]?i?B)\s*/", line)
++    if not found:
++        raise ValueError(line)
++    units = {"B": 1 / 1048576, "KiB": 1 / 1024, "MiB": 1, "GiB": 1024, "TiB": 1024 * 1024}
++    return float(found.group(1)) * units[found.group(2)]
++
++
++class MemorySampler:
++    """Tracks the peak memory of the server container while it runs."""
++
++    def __init__(self) -> None:
++        self.peak = 0.0
++        self.process = subprocess.Popen(
++            ["docker", "stats", CONTAINER, "--format", "{{.MemUsage}}"],
++            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
++        )
++        self.thread = threading.Thread(target=self._read, daemon=True)
++        self.thread.start()
++
++    def _read(self) -> None:
++        for line in self.process.stdout:
++            try:
++                self.peak = max(self.peak, mib(line))
++            except ValueError:
++                continue
++
++    def stop(self) -> int | None:
++        self.process.terminate()
++        self.process.wait()
++        self.thread.join(timeout=5)
++        return round(self.peak) if self.peak else None
++
++
+ def measure(port: int, key: str, tokens: int, predict: int, ratio: float) -> dict:
+-    prompt = words(int(tokens / ratio))
++    # The words-per-token ratio of a short sample drifts on a long prompt: tokenize and rescale
++    # until the prompt is within 0.5% of the target and never above it.
++    count = int(tokens / ratio)
++    for _ in range(4):
++        prompt = words(count)
++        actual = len(call(port, key, "/tokenize", {"content": prompt}, 600)["tokens"])
++        if tokens * 0.995 <= actual <= tokens:
++            break
++        count = int(count * tokens / actual * 0.998)
+     sampler = GpuSampler()
++    memory_sampler = MemorySampler()
+     memory_before = available_memory_mib()
+     started = time.monotonic()
+     result = call(
+@@ -98,6 +152,7 @@ def measure(port: int, key: str, tokens: int, predict: int, ratio: float) -> dic
+     )
+     wall = round(time.monotonic() - started, 1)
+     gpu = sampler.stop()
++    memory_peak = memory_sampler.stop()
+     timings = result.get("timings", {})
+     return {
+         "target_tokens": tokens,
+@@ -108,6 +163,7 @@ def measure(port: int, key: str, tokens: int, predict: int, ratio: float) -> dic
+         "wall_seconds": wall,
+         "gpu": gpu,
+         "container_memory": container_memory(),
++        "container_memory_peak_mib": memory_peak,
+         "vm_available_mib": {"before": memory_before, "after": available_memory_mib()},
+     }
+ 
+@@ -128,26 +184,35 @@ def main() -> None:
+     ratio = len(call(port, key, "/tokenize", {"content": sample}, 60)["tokens"]) / 2000
+ 
+     results = []
++    failed = []
++    out_dir = records / "bench"
++    out_dir.mkdir(parents=True, exist_ok=True)
++    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
++    out = out_dir / f"{server['model_id']}-{stamp}.json"
++    vram_at_start = gpu_memory_used()
+     for tokens in (int(t) for t in args.contexts.split(",")):
+         if tokens + args.predict + 512 > server["context"]:
+             tokens = server["context"] - args.predict - 512
+         print(f"{server['model_id']}: prompt of about {tokens} tokens", flush=True)
+-        result = measure(port, key, tokens, args.predict, ratio)
++        try:
++            result = measure(port, key, tokens, args.predict, ratio)
++            print(
++                f"  prompt {result['prompt_tokens']} tokens at {result['prompt_per_second']}/s, "
++                f"generation {result['generation_per_second']}/s, {result['wall_seconds']} s, "
++                f"GPU {result['gpu'].get('power_mean_w')} W, VRAM peak {result['gpu'].get('vram_peak_mib')} MiB",
++                flush=True,
++            )
++        except (OSError, ValueError, KeyError) as error:
++            result = {"target_tokens": tokens, "error": f"{type(error).__name__}: {error}"}
++            failed.append(tokens)
++            print(f"  failed: {result['error']}", flush=True)
+         results.append(result)
+-        print(
+-            f"  prompt {result['prompt_tokens']} tokens at {result['prompt_per_second']}/s, "
+-            f"generation {result['generation_per_second']}/s, {result['wall_seconds']} s, "
+-            f"GPU {result['gpu'].get('power_mean_w')} W, VRAM peak {result['gpu'].get('vram_peak_mib')} MiB",
+-            flush=True,
+-        )
+-
+-    out_dir = records / "bench"
+-    out_dir.mkdir(parents=True, exist_ok=True)
+-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+-    out = out_dir / f"{server['model_id']}-{stamp}.json"
+-    out.write_text(json.dumps({"server": server, "words_per_token": round(1 / ratio, 3),
+-                               "predict": args.predict, "results": results}, indent=2))
++        out.write_text(json.dumps({"server": server, "words_per_token": round(1 / ratio, 3),
++                                   "predict": args.predict, "vram_used_at_start_mib": vram_at_start,
++                                   "results": results}, indent=2))
+     print(f"written to {out}")
++    if failed:
++        raise SystemExit(f"prompt sizes that failed: {failed}")
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/harness/src/atr/local/fetch.py b/harness/src/atr/local/fetch.py
+index 4bd54e0..6e6774a 100644
+--- a/harness/src/atr/local/fetch.py
++++ b/harness/src/atr/local/fetch.py
+@@ -6,7 +6,10 @@ With no model id, fetches every model of the stage. Files come from their
+ Hugging Face repository at the pinned revision and go to $ATR_MODELS_DIR. A
+ download resumes where it stopped. A file counts as present only once its size
+ and SHA-256 match models.toml; a marker next to it records the digest, so later
+-calls skip the hash. A file that fails the check is kept as <file>.bad.
++calls skip the hash. A file whose size or digest does not match is kept as
++<file>.bad, so the next call downloads afresh. The result line says "present,
++verified" for a file that was already complete and "downloaded and verified"
++only after a download.
+ """
+ 
+ import argparse
+@@ -34,6 +37,7 @@ def check(model_id: str, entry: dict, path: Path) -> None:
+     """Fail unless the file has the pinned size and digest."""
+     size = path.stat().st_size
+     if size != entry["size"]:
++        path.rename(path.with_name(entry["file"] + ".bad"))
+         raise SystemExit(f"{model_id}: {path.name} has {size} bytes, expected {entry['size']}")
+     print(f"{model_id}: hashing {path.name}", flush=True)
+     digest = sha256(path)
+@@ -45,8 +49,9 @@ def check(model_id: str, entry: dict, path: Path) -> None:
+ def fetch(model_id: str, entry: dict, directory: Path, dry_run: bool = False) -> str:
+     weights = directory / entry["file"]
+     if config.verified(entry, directory):
+-        return f"{model_id}: present and verified"
+-    if weights.exists():
++        return f"{model_id}: present, verified"
++    downloaded = not weights.exists()
++    if not downloaded:
+         if dry_run:
+             return f"{model_id}: would verify {weights}"
+         check(model_id, entry, weights)
+@@ -73,7 +78,7 @@ def fetch(model_id: str, entry: dict, directory: Path, dry_run: bool = False) ->
+         check(model_id, entry, partial)
+         partial.rename(weights)
+     config.marker(weights).write_text(f"{entry['sha256']}  {entry['file']}\n")
+-    return f"{model_id}: downloaded and verified"
++    return f"{model_id}: {'downloaded and verified' if downloaded else 'present, verified'}"
+ 
+ 
+ def main() -> None:
+diff --git a/harness/src/atr/local/serve.py b/harness/src/atr/local/serve.py
+index 9a67088..658f92d 100644
+--- a/harness/src/atr/local/serve.py
++++ b/harness/src/atr/local/serve.py
+@@ -10,7 +10,8 @@ Task containers reach it at host.docker.internal:<port>, as they reach the
+ Collector. Each start makes a new API key, written to server.key in
+ $ATR_DATA_DIR/local-inference, and records what it started, without the key,
+ in server.json next to it. A start fails unless the weights are verified and
+-the server refuses requests that lack the key.
++the server refuses requests that lack the key, Docker publishes the port on
++127.0.0.1 only and the key is absent from the record.
+ """
+ 
+ import argparse
+@@ -64,6 +65,34 @@ def container_memory() -> str | None:
+     return out.stdout.strip() or None
+ 
+ 
++def inspect() -> dict:
++    out = subprocess.run(["docker", "inspect", CONTAINER], capture_output=True, text=True)
++    try:
++        return json.loads(out.stdout)[0]
++    except (json.JSONDecodeError, IndexError):
++        return {}
++
++
++def machine() -> dict:
++    """The GPU, the VM's memory and its processors, for the record."""
++    gpu = None
++    try:
++        out = subprocess.run(
++            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
++            check=True, capture_output=True, text=True,
++        ).stdout.splitlines()[0]
++        name, total = (part.strip() for part in out.rsplit(",", 1))
++        gpu = {"name": name, "vram_total_mib": int(total)}
++    except (OSError, subprocess.CalledProcessError, ValueError, IndexError):
++        pass
++    memory = None
++    with open("/proc/meminfo") as f:
++        for line in f:
++            if line.startswith("MemTotal:"):
++                memory = int(line.split()[1]) // 1024
++    return {"gpu": gpu, "vm_memory_total_mib": memory, "processors": os.cpu_count()}
++
++
+ def running() -> bool:
+     out = subprocess.run(
+         ["docker", "ps", "--quiet", "--filter", f"name=^{CONTAINER}$"], capture_output=True, text=True
+@@ -126,26 +155,41 @@ def start(model_id: str, port: int, context: int | None, extra: list[str], timeo
+         stop()
+         raise SystemExit(f"key check failed: {without_key} without the key, {with_key} with it")
+ 
++    # Fail closed unless Docker published the port on the loopback only.
++    details = inspect()
++    bindings = (details.get("NetworkSettings", {}).get("Ports") or {}).get("8080/tcp") or []
++    published = [f"{b.get('HostIp')}:{b.get('HostPort')}" for b in bindings]
++    if not bindings or any(b.get("HostIp") != "127.0.0.1" for b in bindings):
++        stop()
++        raise SystemExit(f"the port is not published on 127.0.0.1 only: {published}")
++
+     record = {
+         "model_id": model_id,
+         **{field: entry[field] for field in ("alias", "role", "repo", "revision", "file", "size", "sha256")},
+         "image": server["image"],
++        "image_id": details.get("Image"),
+         "build": server["build"],
+         "commit": server["commit"],
+         "context": context,
+         "args": args,
+         "port": port,
++        "published": published,
++        "machine": machine(),
+         "started_at": datetime.now(UTC).isoformat(timespec="seconds"),
+         "load_seconds": load_seconds,
+         "vram_used_mib": {"before": vram_before, "loaded": gpu_memory_used()},
+         "container_memory": container_memory(),
+     }
++    serialized = json.dumps(record, indent=2)
++    if key in serialized:
++        stop()
++        raise SystemExit("the key appears in the server record; nothing was written")
+     records = config.data_dir()
+     records.mkdir(parents=True, exist_ok=True)
+     key_file = records / "server.key"
+     key_file.write_text(key)
+     key_file.chmod(0o600)
+-    (records / "server.json").write_text(json.dumps(record, indent=2))
++    (records / "server.json").write_text(serialized)
+     return record
+ 
+ 
+diff --git a/infra/local-inference/models.toml b/infra/local-inference/models.toml
+index c956521..5d71e3a 100644
+--- a/infra/local-inference/models.toml
++++ b/infra/local-inference/models.toml
+@@ -8,7 +8,12 @@
+ #   uv run python -m atr.local.bench            measure its speeds and power
+ #   uv run python -m atr.local.serve stop
+ # Weights live outside the repository, in $ATR_MODELS_DIR (default /mnt/d/atr/models).
+-# The flags start from the model cards and are tuned in WP0.
++# The main-stage flags were measured in WP0 on 2026-11-04 on the operator's machine
++# (RTX 3060 Ti with 8 GB, a WSL 2 VM with 18 GB) and are recorded, with the
++# numbers, in documentation/research/local-route.md. Each main-stage model's
++# `baseline` names its benchmark file under $ATR_DATA_DIR/local-inference/bench/.
++# One slot (--parallel 1): the MVP runs one trial at a time (D-058), and a second
++# slot would split the context and the memory.
+ 
+ [server]
+ image = "ghcr.io/ggml-org/llama.cpp:server-cuda-b12063@sha256:d5ffba7d096ab0236c65dc147d797b4b7658a7e5425634593373635d661bccda"
+@@ -27,7 +32,10 @@ args = [
+     "--offline",
+ ]
+ 
+-# L-MoE. Thinking, precise coding: the model card's sampling.
++# L-MoE. Thinking, precise coding: the model card's sampling. 34 layers of experts
++# stay on the CPU: with 36 the 128k context left 1.9 GB of VRAM free after loading,
++# with 32 the full 128k prompt peaked at 7972 of 8192 MiB, and 34 peaked at
++# 7565 MiB (about 0.6 GB free) and ran the 128k prompt at 342 tokens/s.
+ [models."qwen3.6-35b-a3b-ud-q3_k_xl"]
+ alias = "qwen3.6-35b-a3b"
+ role = "L-MoE"
+@@ -38,9 +46,10 @@ file = "Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf"
+ size = 16845511648
+ sha256 = "a832b9689925f1bd335bbe985cdfb06c36bf2cf268f4f8f6eceafa3ceb515617"
+ context = 131072
++baseline = "qwen3.6-35b-a3b-ud-q3_k_xl-20261104T204406Z.json"
+ args = [
+     "--n-gpu-layers", "999",
+-    "--n-cpu-moe", "36",
++    "--n-cpu-moe", "34",
+     "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",
+     "--chat-template-kwargs", '{"enable_thinking":true}',
+ ]
+@@ -82,7 +91,9 @@ args = [
+ ]
+ 
+ # L-Small, entirely on the GPU. Unsloth and the card disagree on whether it
+-# thinks by default, so thinking is set explicitly.
++# thinks by default, so thinking is set explicitly. At 128k the whole model, its
++# 8-bit cache and the context fit in 8 GB (peak 7983 MiB); generation slows to
++# 22 tokens/s at a full 128k prompt.
+ [models."qwen3.5-9b-q4_k_m"]
+ alias = "qwen3.5-9b"
+ role = "L-Small"
+@@ -93,6 +104,7 @@ file = "Qwen3.5-9B-Q4_K_M.gguf"
+ size = 5680522464
+ sha256 = "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
+ context = 131072
++baseline = "qwen3.5-9b-q4_k_m-20261104T192021Z.json"
+ args = [
+     "--n-gpu-layers", "999",
+     "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",

@@ -1,0 +1,37 @@
+{
+  "attempt": 1,
+  "verdict": "IMPLEMENTATION_COMPLETE",
+  "files_changed": [
+    "documentation/research/local-route.md",
+    "harness/src/atr/local/launch.py",
+    "harness/src/atr/tasks/build.py",
+    "targets/synthetic-events/task-01.toml"
+  ],
+  "files_outside_repo": "counts only: 3 private Target A manifests gained the local allowlist key and 3 local variants were built; the check-run job config, the synthetic task-01-local build and the check-run job folder were created in WSL",
+  "validation": {
+    "level_1": "PASS",
+    "level_2": "PASS",
+    "level_3": "FAIL"
+  },
+  "plan_validation_defect": {
+    "level": 3,
+    "command": "$PY -m atr.local.launch ~/atr/local/lc-p4-launcher-l-small-synthetic-task-01-local.json --dry-run",
+    "observed": "/root/atr/data/jobs/lc-p4-launcher-l-small-synthetic-task-01-local already exists; a job is never resumed or mixed (rc=1)",
+    "prd_refs": ["PRPs/plans/local-model-route-phase-4-local-launcher-and-allowlists.plan.md AC-A4", "Task 3 ACTION check (d)"],
+    "reason": "Level 3's closing dry run follows Task 6, which creates the job folder the launcher is required to refuse."
+  },
+  "plan_validation_defect_check": {
+    "accepted": false,
+    "conditions": {
+      "command_in_plan": true,
+      "observed_in_outputs": true,
+      "prd_refs_resolve_to_source_prd": false,
+      "other_levels_pass": true
+    },
+    "note": "The prd_refs cite the plan's own AC-A4 and Task 3, not an AC or interface-contract line of the source PRD; the existing-folder refusal is a plan rule, not PRD AC-7's. Per relay-implement Phase A.2 the field is ignored and the attempt goes to code review as an ordinary IMPLEMENTATION_COMPLETE."
+  },
+  "validation_notes": "Check run through the launcher: Harbor exit 0, one trial ended with UnknownApiError (the Qwen3.5-9B chat-template error from Phase 3), reward 0.0; server/ holds server.json, slots.json, metrics.prom, server.log, power.csv and power.json (248 samples, 2.269 Wh); launch.json written; no server or key left. The MVP-priority refusal named the stand-in job and started no server.",
+  "base_commit": "0a4c07587ad0024c6045653a24f94f23a1f825b3",
+  "dispatched_at": "2026-11-04T22:13:20Z",
+  "returned_at": "2026-11-04T22:22:27Z"
+}

@@ -1,0 +1,431 @@
+{
+  "feature": "local-model-route",
+  "prd_path": "C:/repos/ai-track-record/PRPs/prds/local-model-route.prd.md",
+  "started_at": "2026-11-04T18:26:10Z",
+  "ended_at": "2026-11-05T02:42:00Z",
+  "max_plan_review_retries": 2,
+  "max_tdd_review_retries": 2,
+  "max_orchestrator_minutes": 240,
+  "lane_selection": "serial (lane_runtime_safe: false)",
+  "phases": [
+    {
+      "phase": 1,
+      "stage": "plan",
+      "outcome": "APPROVED",
+      "plan_path": "PRPs/plans/local-model-route-phase-1-machine-baseline.plan.md"
+    },
+    {
+      "phase": 1,
+      "stage": "worktree",
+      "outcome": "CREATED",
+      "repo": null,
+      "worktree_path": "C:/repos/ai-track-record/.worktrees/local-model-route/",
+      "worktree_attempted": true,
+      "worktree_succeeded": true,
+      "fallback_reason": null
+    },
+    {
+      "phase": 1,
+      "stage": "tdd",
+      "outcome": "skipped_no_framework"
+    },
+    {
+      "phase": 1,
+      "stage": "implement",
+      "outcome": "APPROVED"
+    },
+    {
+      "phase": 1,
+      "stage": "docs_sync",
+      "outcome": "APPROVED"
+    },
+    {
+      "phase": 1,
+      "stage": "d8",
+      "outcome": "APPLIED"
+    },
+    {
+      "phase": 1,
+      "stage": "test_after",
+      "outcome": "not_applicable"
+    },
+    {
+      "phase": 1,
+      "stage": "test",
+      "outcome": "skipped_no_test_framework"
+    },
+    {
+      "phase": 1,
+      "stage": "snapshot",
+      "outcome": "RECORDED",
+      "tree": "985fae641f083f13fb1d9e3dd8b5e448b399e0b6"
+    },
+    {
+      "phase": 1,
+      "status": "complete",
+      "plan_path": "PRPs/plans/completed/local-model-route-phase-1-machine-baseline.plan.md",
+      "timestamp": "2026-11-04T21:06:37Z"
+    },
+    {
+      "phase": 2,
+      "stage": "plan",
+      "outcome": "APPROVED",
+      "plan_path": "PRPs/plans/local-model-route-phase-2-hardened-server.plan.md",
+      "plan_review_attempts": 1
+    },
+    {
+      "phase": 2,
+      "stage": "worktree",
+      "outcome": "CREATED",
+      "repo": null,
+      "worktree_path": "C:/repos/ai-track-record/.worktrees/local-model-route/",
+      "worktree_attempted": true,
+      "worktree_succeeded": true,
+      "fallback_reason": null,
+      "note": "idempotent re-use of the phase 1 worktree on feature/local-model-route"
+    },
+    {
+      "phase": 2,
+      "stage": "tdd",
+      "outcome": "skipped_no_framework"
+    },
+    {
+      "phase": 2,
+      "stage": "implement",
+      "outcome": "APPROVED"
+    },
+    {
+      "phase": 2,
+      "stage": "docs_sync",
+      "outcome": "APPROVED"
+    },
+    {
+      "phase": 2,
+      "stage": "d8",
+      "outcome": "APPLIED"
+    },
+    {
+      "phase": 2,
+      "stage": "test_after",
+      "outcome": "not_applicable"
+    },
+    {
+      "phase": 2,
+      "stage": "test",
+      "outcome": "skipped_no_test_framework"
+    },
+    {
+      "phase": 2,
+      "stage": "snapshot",
+      "outcome": "RECORDED",
+      "tree": "156ff0f34d59f48b7fd12562b4dd71923ec4eba2"
+    },
+    {
+      "phase": 2,
+      "status": "complete",
+      "plan_path": "PRPs/plans/completed/local-model-route-phase-2-hardened-server.plan.md",
+      "timestamp": "2026-11-04T21:32:50Z"
+    },
+    {
+      "phase": 3,
+      "stage": "plan",
+      "outcome": "APPROVED",
+      "plan_path": "PRPs/plans/local-model-route-phase-3-agent-route-option.plan.md",
+      "plan_review_attempts": 0
+    },
+    {
+      "phase": 3,
+      "stage": "worktree",
+      "outcome": "CREATED",
+      "repo": null,
+      "worktree_path": "C:/repos/ai-track-record/.worktrees/local-model-route/",
+      "worktree_attempted": true,
+      "worktree_succeeded": true,
+      "fallback_reason": null,
+      "note": "idempotent re-use of the phase 1 worktree on feature/local-model-route"
+    },
+    {
+      "phase": 3,
+      "stage": "tdd",
+      "outcome": "skipped_no_framework"
+    },
+    {
+      "phase": 3,
+      "stage": "implement",
+      "outcome": "APPROVED"
+    },
+    {
+      "phase": 3,
+      "stage": "docs_sync",
+      "outcome": "APPROVED"
+    },
+    {
+      "phase": 3,
+      "stage": "d8",
+      "outcome": "APPLIED"
+    },
+    {
+      "phase": 3,
+      "stage": "test_after",
+      "outcome": "not_applicable"
+    },
+    {
+      "phase": 3,
+      "stage": "test",
+      "outcome": "skipped_no_test_framework"
+    },
+    {
+      "phase": 3,
+      "stage": "snapshot",
+      "outcome": "RECORDED",
+      "tree": "0a4c07587ad0024c6045653a24f94f23a1f825b3"
+    },
+    {
+      "phase": 3,
+      "status": "complete",
+      "plan_path": "PRPs/plans/completed/local-model-route-phase-3-agent-route-option.plan.md",
+      "timestamp": "2026-11-04T22:06:51Z"
+    },
+    {
+      "phase": 4,
+      "stage": "plan",
+      "outcome": "APPROVED",
+      "plan_path": "PRPs/plans/local-model-route-phase-4-local-launcher-and-allowlists.plan.md",
+      "plan_review_attempts": 1
+    },
+    {
+      "phase": 4,
+      "stage": "worktree",
+      "outcome": "CREATED",
+      "repo": null,
+      "worktree_path": "C:/repos/ai-track-record/.worktrees/local-model-route/",
+      "worktree_attempted": true,
+      "worktree_succeeded": true,
+      "fallback_reason": null,
+      "note": "idempotent re-use of the phase 1 worktree on feature/local-model-route"
+    },
+    {
+      "phase": 4,
+      "stage": "tdd",
+      "outcome": "skipped_no_framework"
+    },
+    {
+      "phase": 4,
+      "stage": "implement",
+      "outcome": "HALT:FAILED_AFTER_N_RETRIES"
+    },
+    {
+      "phase": 4,
+      "stage": "plan_repair",
+      "outcome": "STARTED",
+      "defect": "Level 3 (and Task 4 VALIDATE): closing `$PY -m atr.local.launch ~/atr/local/lc-p4-launcher-l-small-synthetic-task-01-local.json --dry-run` runs after Task 6 created that job folder, which Task 3 check (d) requires the launcher to refuse; observed: 'already exists; a job is never resumed or mixed' (rc=1) on attempts 1-4",
+      "authorized_by": "operator in chat"
+    },
+    {
+      "phase": 4,
+      "stage": "plan_repair",
+      "outcome": "APPROVED"
+    },
+    {
+      "phase": 4,
+      "stage": "implement",
+      "outcome": "APPROVED"
+    },
+    {
+      "phase": 4,
+      "stage": "docs_sync",
+      "outcome": "APPROVED"
+    },
+    {
+      "phase": 4,
+      "stage": "d8",
+      "outcome": "APPLIED"
+    },
+    {
+      "phase": 4,
+      "stage": "test_after",
+      "outcome": "not_applicable"
+    },
+    {
+      "phase": 4,
+      "stage": "test",
+      "outcome": "skipped_no_test_framework"
+    },
+    {
+      "phase": 4,
+      "stage": "snapshot",
+      "outcome": "RECORDED",
+      "tree": "9d1a8fa954bd898be916439a62dd1a325cb3a0e1"
+    },
+    {
+      "phase": 4,
+      "status": "complete",
+      "plan_path": "PRPs/plans/completed/local-model-route-phase-4-local-launcher-and-allowlists.plan.md",
+      "timestamp": "2026-11-04T23:27:33Z"
+    },
+    {
+      "phase": 5,
+      "stage": "plan",
+      "outcome": "APPROVED",
+      "plan_path": "PRPs/plans/local-model-route-phase-5-store-budget-and-export.plan.md",
+      "plan_review_attempts": 1
+    },
+    {
+      "phase": 5,
+      "stage": "worktree",
+      "outcome": "CREATED",
+      "repo": null,
+      "worktree_path": "C:/repos/ai-track-record/.worktrees/local-model-route/",
+      "worktree_attempted": true,
+      "worktree_succeeded": true,
+      "fallback_reason": null,
+      "note": "idempotent re-use of the phase 1 worktree on feature/local-model-route"
+    },
+    {
+      "phase": 5,
+      "stage": "tdd",
+      "outcome": "skipped_no_framework"
+    },
+    {
+      "phase": 5,
+      "stage": "implement",
+      "outcome": "APPROVED"
+    },
+    {
+      "phase": 5,
+      "stage": "docs_sync",
+      "outcome": "APPROVED"
+    },
+    {
+      "phase": 5,
+      "stage": "d8",
+      "outcome": "APPLIED"
+    },
+    {
+      "phase": 5,
+      "stage": "test_after",
+      "outcome": "not_applicable"
+    },
+    {
+      "phase": 5,
+      "stage": "test",
+      "outcome": "skipped_no_test_framework"
+    },
+    {
+      "phase": 5,
+      "stage": "snapshot",
+      "outcome": "RECORDED",
+      "tree": "5a4678d37c49c00fc82cee6a4995cb7621a056bd"
+    },
+    {
+      "phase": 5,
+      "status": "complete",
+      "plan_path": "PRPs/plans/completed/local-model-route-phase-5-store-budget-and-export.plan.md",
+      "timestamp": "2026-11-04T23:51:52Z"
+    },
+    {
+      "phase": 6,
+      "stage": "plan",
+      "outcome": "APPROVED",
+      "plan_path": "PRPs/plans/local-model-route-phase-6-compatibility-checks.plan.md",
+      "plan_review_attempts": 0
+    },
+    {
+      "phase": 6,
+      "stage": "worktree",
+      "outcome": "CREATED",
+      "repo": null,
+      "worktree_path": "C:/repos/ai-track-record/.worktrees/local-model-route/",
+      "worktree_attempted": true,
+      "worktree_succeeded": true,
+      "fallback_reason": null,
+      "note": "idempotent re-use of the phase 1 worktree on feature/local-model-route"
+    },
+    {
+      "phase": 6,
+      "stage": "tdd",
+      "outcome": "skipped_no_framework"
+    },
+    {
+      "phase": 6,
+      "stage": "implement",
+      "outcome": "APPROVED",
+      "attempts": 1
+    },
+    {
+      "phase": 6,
+      "stage": "docs_sync",
+      "outcome": "APPROVED",
+      "note": "the review_started_at passed to the docs reviewer (02:47:00Z, recorded in docs-review.jsonl line 6) was wrong; the review ran at about 02:40-02:41Z"
+    },
+    {
+      "phase": 6,
+      "stage": "d8",
+      "outcome": "APPLIED"
+    },
+    {
+      "phase": 6,
+      "stage": "test_after",
+      "outcome": "not_applicable"
+    },
+    {
+      "phase": 6,
+      "stage": "test",
+      "outcome": "skipped_no_test_framework"
+    },
+    {
+      "phase": 6,
+      "stage": "snapshot",
+      "outcome": "RECORDED",
+      "tree": "9e5e55915854d2c15c2402faff33647ec83dc3aa"
+    },
+    {
+      "phase": 6,
+      "status": "complete",
+      "plan_path": "PRPs/plans/completed/local-model-route-phase-6-compatibility-checks.plan.md",
+      "timestamp": "2026-11-05T02:42:00Z"
+    }
+  ],
+  "outcome": "ALL_PHASES_COMPLETE",
+  "phases_completed": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "worktree_attempted": true,
+  "worktree_succeeded": true,
+  "fallback_reason": null,
+  "phase_diff_bases": {
+    "1": "985fae641f083f13fb1d9e3dd8b5e448b399e0b6",
+    "2": "156ff0f34d59f48b7fd12562b4dd71923ec4eba2",
+    "3": "0a4c07587ad0024c6045653a24f94f23a1f825b3",
+    "4": "9d1a8fa954bd898be916439a62dd1a325cb3a0e1",
+    "5": "5a4678d37c49c00fc82cee6a4995cb7621a056bd",
+    "6": "9e5e55915854d2c15c2402faff33647ec83dc3aa"
+  },
+  "suite_diff_bases": {},
+  "plan_validation_repairs": {
+    "4": 1
+  },
+  "lane_durations_ms": {},
+  "total_duration_ms": 29750000,
+  "deviations": [],
+  "sessions": [
+    {
+      "started_at": "2026-11-04T18:26:10Z",
+      "ended_at": "2026-11-04T22:29:54Z",
+      "outcome": "FAILED_IMPLEMENT_FAILED_AFTER_N_RETRIES",
+      "halt_file": "orchestrator-halt.session-1.json"
+    },
+    {
+      "started_at": "2026-11-04T23:19:19Z",
+      "reason": "operator approved in chat (2026-11-04): repair the Phase 4 plan's closing dry run and resume",
+      "deadline_ts": "2026-11-05T03:19:19Z",
+      "ended_at": "2026-11-05T02:42:00Z",
+      "outcome": "ALL_PHASES_COMPLETE"
+    }
+  ]
+}

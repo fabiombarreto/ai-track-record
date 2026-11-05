@@ -1,0 +1,17 @@
+{
+  "attempt": 1,
+  "verdict": "IMPLEMENTATION_COMPLETE",
+  "files_changed": [
+    "documentation/research/local-route.md",
+    "harness/src/atr/agents/claude_sdk.py",
+    "harness/src/atr/local/serve.py",
+    "harness/src/atr/store/load.py",
+    "infra/local-inference/models.toml",
+    "infra/local-inference/templates/qwen3.5-9b-q4_k_m.jinja"
+  ],
+  "validation": {"level_1": "PASS", "level_2": "PASS", "level_3": "PASS"},
+  "validation_notes": "Debug run: 11 requests rejected at template line 85 with shape system, user, later system; structure-only record in checks/l3-template-*.json. L-Small template override pinned by SHA-256 in models.toml and checked by serve.check_args; check L1 passed again on it. L-MoE runs on its embedded template, which does not raise but drops a later system message (documented). Runs through the launcher: L-Small vanilla reward 1.0 (147 turns, 3502 s, 184.6 Wh, reconciliation match); L-MoE vanilla reward 0.0 (5 of 7, 994 s, match); relay probe on L-MoE ended success after 45 turns and 2199 s without running the workflow (reward 0, skipped-step check did not flag it, reconciliation mismatch by 3 input tokens); time-limit run timed_out; turn-limit run raised error_max_turns with no agent/result.json, so the store gives error/NonZeroAgentExitCodeError instead of budget_exceeded (L8 partial, not fixed: outside the plan). Two reviews, US$ 0.379, on the lc- budget line; MVP total unchanged at US$ 163.81. Static analysis not run on the lc-p6 trials. Report has 20 check rows for L1-L10: no Fail; Partial on L5 and L7 for the relay probe, L8 and L10.",
+  "base_commit": "5a4678d37c49c00fc82cee6a4995cb7621a056bd",
+  "started_at": "2026-11-04T23:55:30Z",
+  "ended_at": "2026-11-05T02:37:07Z"
+}

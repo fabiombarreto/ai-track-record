@@ -1,0 +1,7 @@
+{
+  "local-model-route": {
+    "base": "--base main",
+    "resolved": "refs/heads/main",
+    "sha": "d064ddd522987e2881c28b7f883b7365f74616d5"
+  }
+}

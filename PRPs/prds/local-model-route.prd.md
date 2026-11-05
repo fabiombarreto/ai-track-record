@@ -162,12 +162,12 @@ Current value of `tdd` in `docs/context/methodology.md`: **false**. Test-after o
 
 | # | Phase | Description | Status | Repo | Parallel | Depends | PRP Plan |
 |---|-------|-------------|--------|------|----------|---------|----------|
-| 1 | Machine baseline | Finish and run the fetch, serve and bench scripts on L-MoE and L-Small; record speeds, power, memory and the quantization, context and slot choices | pending | - | - | - | - |
-| 2 | Hardened server | Final server flags in `models.toml`; offline, loopback and key checks; the server record shaped for copying into trials | pending | - | - | 1 | - |
-| 3 | Agent route option | Route option and settings in the agent, pre-flight server check, `agent/route.json` | pending | - | - | 2 | - |
-| 4 | Local launcher and allowlists | Launcher with a server per run, power sampling, record copy and the MVP-priority refusal; allowlist variants for Target A and the synthetic task | pending | - | - | 3 | - |
-| 5 | Store, budget and export | Route-aware loading and reconciliation, `lc-` jobs out of the MVP's ceiling, route and label in the export | pending | - | - | 4 | - |
-| 6 | Compatibility checks | Checks L1 to L10 and the relay probe on the synthetic task, with the results report | pending | - | - | 5 | - |
+| 1 | Machine baseline | Finish and run the fetch, serve and bench scripts on L-MoE and L-Small; record speeds, power, memory and the quantization, context and slot choices | complete | - | - | - | PRPs/plans/local-model-route-phase-1-machine-baseline.plan.md |
+| 2 | Hardened server | Final server flags in `models.toml`; offline, loopback and key checks; the server record shaped for copying into trials | complete | - | - | 1 | PRPs/plans/local-model-route-phase-2-hardened-server.plan.md |
+| 3 | Agent route option | Route option and settings in the agent, pre-flight server check, `agent/route.json` | complete | - | - | 2 | PRPs/plans/local-model-route-phase-3-agent-route-option.plan.md |
+| 4 | Local launcher and allowlists | Launcher with a server per run, power sampling, record copy and the MVP-priority refusal; allowlist variants for Target A and the synthetic task | complete | - | - | 3 | PRPs/plans/local-model-route-phase-4-local-launcher-and-allowlists.plan.md |
+| 5 | Store, budget and export | Route-aware loading and reconciliation, `lc-` jobs out of the MVP's ceiling, route and label in the export | complete | - | - | 4 | PRPs/plans/local-model-route-phase-5-store-budget-and-export.plan.md |
+| 6 | Compatibility checks | Checks L1 to L10 and the relay probe on the synthetic task, with the results report | complete | - | - | 5 | PRPs/plans/local-model-route-phase-6-compatibility-checks.plan.md |
 
 #### Phase-status lifecycle
 

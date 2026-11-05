@@ -1,0 +1,9 @@
+{
+  "attempt": 1,
+  "invocation": "after the plan-validation repair (session 2)",
+  "verdict": "IMPLEMENTATION_COMPLETE",
+  "files_changed": [],
+  "validation": {"level_1": "PASS", "level_2": "PASS", "level_3": "PASS"},
+  "validation_notes": "No code change: the repaired Validation Commands pass against session 1's implementation. Level 3: refusal beside the stand-in named it and started no server; the fresh-named dry run passed after the stand-in stopped; the existing check-run job folder was refused; the check run's records are present. The implementer noted its first Level 2 run passed only because its own shell quoting corrupted the JSON, and re-ran that step with a correct file (refused as a non-local job).",
+  "base_commit": "0a4c07587ad0024c6045653a24f94f23a1f825b3"
+}

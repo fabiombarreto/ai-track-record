@@ -1,0 +1,13 @@
+{
+  "attempt": 1,
+  "verdict": "IMPLEMENTATION_COMPLETE",
+  "files_changed": [
+    "documentation/research/local-route.md",
+    "harness/src/atr/ops/budget.py",
+    "harness/src/atr/store/export.py",
+    "harness/src/atr/store/load.py"
+  ],
+  "validation": {"level_1": "PASS", "level_2": "PASS", "level_3": "PASS"},
+  "validation_notes": "Synthetic check data: both trials match; local trial route local, cost 0.0 source local, SDK estimate 0.37, 1.5 Wh. Real store rebuilt: m2-/m3- 35 trials and US$ 149.80889974 before and after; budget US$ 163.81 unchanged plus the lc- line; 3 local trials load with route local, cost 0 source local, native reason server_error, zero server counts, 2.269 Wh on the Phase 4 trial. Export of the two real local jobs passed the leak check into temporary folders; publications.jsonl unchanged at 2 lines. The implementer did not compare the store-wide count of reconciliation mismatches (8 after the change) with the count before it.",
+  "base_commit": "9d1a8fa954bd898be916439a62dd1a325cb3a0e1"
+}

@@ -1,0 +1,21 @@
+{
+  "attempt": 1,
+  "verdict": "IMPLEMENTATION_COMPLETE",
+  "files_changed": [
+    "documentation/research/local-route.md",
+    "harness/src/atr/agents/claude_sdk.py"
+  ],
+  "files_outside_repo": [
+    "~/atr/local/lc-p3-vanilla-l-small-synthetic-task-01.json",
+    "~/atr/local/lc-p3-vanilla-l-small-synthetic-task-01-retry.json"
+  ],
+  "validation": {
+    "level_1": "PASS",
+    "level_2": "PASS",
+    "level_3": "PASS"
+  },
+  "validation_notes": "Level 3's Python body ran against the server started for the check run, not under the plan's own start/stop wrapper. The check run (Task 5) reached the server through the pre-flight check and wrote agent/route.json, but the trial ended with UnknownApiError after ten HTTP 500 answers: the Qwen3.5-9B chat template rejects a system message that is not at the beginning. Verifier reward 0.0. A repeat run (-retry job) failed the same way and carried the verified key-absence check. No Anthropic API call was made.",
+  "base_commit": "156ff0f34d59f48b7fd12562b4dd71923ec4eba2",
+  "dispatched_at": "2026-11-04T21:38:10Z",
+  "returned_at": "2026-11-04T22:03:20Z"
+}

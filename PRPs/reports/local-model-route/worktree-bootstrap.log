@@ -1,0 +1,4 @@
+# worktree-bootstrap.log (redacted per redaction-policy.md; Layer 2 extensions from PRPs/redaction-extensions.txt)
+# script: scripts/worktree-bootstrap.sh C:/repos/ai-track-record/.worktrees/local-model-route/
+# exit: 0 (timeout 60 s)
+# output: (none)

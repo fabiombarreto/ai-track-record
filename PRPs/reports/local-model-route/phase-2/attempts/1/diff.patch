@@ -1,0 +1,762 @@
+diff --git a/documentation/research/local-route.md b/documentation/research/local-route.md
+index b01d76a..8c5ebe6 100644
+--- a/documentation/research/local-route.md
++++ b/documentation/research/local-route.md
+@@ -10,7 +10,7 @@ This report records the local model route ([plan](../plans/local-models.md), D-0
+ |---|---|---|
+ | WP0: weights downloaded and verified onto D:, speeds and power measured at 32k, 64k and 128k | Done | 2026-11-04 |
+ | WP0: choices recorded in `infra/local-inference/models.toml` (quantization, context, experts on the CPU, slots) | Done | 2026-11-04 |
+-| WP1: the server's checks (key, loopback, prompt cache, flags) | Not started | |
++| WP1: the server's checks (key, loopback, prompt cache, flags); check L1 passed for L-Small and L-MoE | Done | 2026-11-04 |
+ | WP2: the harness changes | Not started | |
+ | WP3: the compatibility checks on the synthetic task | Not started | |
+ 
+@@ -81,9 +81,46 @@ The 36 and 34 loads on `--arg` were the same configuration, so 36 was not benchm
+ 
+ The choices are in `infra/local-inference/models.toml`, with the name of each benchmark file.
+ 
+-### What Phase 2 must still decide
++### Decided in Phase 2, and still open
+ 
+-- The prompt-cache RAM budget (`--cache-ram`) and the final server flags, with check L1.
++Decided: the final server flags and the prompt-cache RAM budget (next section), with check L1 passing for both models.
++
++Open for later phases:
++
++- Whether the prompt-cache RAM budget holds under real prefix reuse (check L5).
+ - Whether the first-request cost of L-MoE (the experts read into the page cache) needs a warm-up request before a run.
+ - Whether L-Small's lack of VRAM headroom at 128k needs a lower context for runs that share the machine with the desktop.
+ - The limits of the measurement: GPU power only, with no whole-system meter; the desktop and the other containers varied between runs, so the speeds are for this machine in this state, not for the models.
++
++## Hardened server
++
++The flags are final for Phase 2 and live in `infra/local-inference/models.toml`.
++
++| Flag | Models | Reason |
++|---|---|---|
++| `--offline` | all | The server never reaches the network; a start without it fails |
++| `--no-webui` | all | The web UI is not used |
++| `--slots` | all | `/slots` is enabled explicitly: check L1 and `serve record` read it |
++| `--metrics` | all | The launcher reads `/metrics` |
++| `--parallel 1` | all | One trial at a time (D-058) |
++| loopback publish | all | Docker publishes the port on `127.0.0.1` only; a start fails otherwise |
++| `--cache-ram 4096` | L-Small | The container peaked at about 5.6 GiB of the VM's 17.6 GiB; llama.cpp's default of 8192 MiB is too much |
++| `--cache-ram 2048` | L-MoE (main and fallback) | The container peaked at 13.4 GiB, leaving about 4 GiB for the cache, the task container, the Collector and the other containers |
++
++The prompt-cache budget is a first value; check L5 revisits it.
++
++A start now makes these checks and fails closed on any of them: the weights are verified; `--offline` is among the flags and no download flag is (`-hf`, `--hf-repo`, `--model-url`, `--docker-repo` and the like), before any container starts; `count_tokens`, `/slots` and `/metrics` each answer 401 without the key and 200 with it; the port is published on `127.0.0.1` only; the key is absent from the record. The record states `offline` and the endpoints checked.
++
++`serve record <folder>` writes `server.json`, `slots.json`, `metrics.prom` and `server.log` for the running server into a folder the launcher names. The server's `/slots` returns each slot's detokenized prompt and generated text, so the copy drops those two fields. Nothing is written if the key would appear in any of the four files.
++
++## Compatibility checks
++
++The check is run by `atr.local.probe` on a synthetic request: a streamed Messages API request with thinking, two system blocks, a tool set, a tool call and its result, and cache markers, and a random marker that must not appear in the server's log. The tool set is a fixture (`infra/local-inference/claude-code-tools.json`) with the names and input schemas of Claude Code's built-in tools and descriptions of our own; it approximates what Claude Code sends, and checks L2 and L3 use the real requests.
++
++| Check | Model | Result | Date | Notes |
++|---|---|---|---|---|
++| L1 | L-Small (qwen3.5-9b-q4_k_m) | Pass | 2026-11-04 | HTTP 200, complete event stream, stop reason `end_turn`, blocks thinking (415 characters) and text (122), no error event; `/slots` shows temperature 0.6, top-p 0.95, top-k 20, min-p 0, presence penalty 0; marker not in the log. No thinking-off retry was needed |
++| L1 | L-MoE (qwen3.6-35b-a3b-ud-q3_k_xl) | Pass | 2026-11-04 | Loaded with `--cache-ram 2048`; HTTP 200, complete event stream, stop reason `end_turn`, blocks thinking (1488 characters) and text (107), no error event; the same sampling applied; marker not in the log. No thinking-off retry was needed |
++| L2 to L10 | | | | Phase 6 |
++
++After each request a `serve record` snapshot was taken and the key was found in none of its files or in the check results; the probe's own log check found no marker.
+diff --git a/harness/src/atr/local/probe.py b/harness/src/atr/local/probe.py
+new file mode 100644
+index 0000000..52ecb6e
+--- /dev/null
++++ b/harness/src/atr/local/probe.py
+@@ -0,0 +1,209 @@
++"""Check L1 of the local models plan: a request shaped like Claude Code's, against the running server.
++
++Usage: python -m atr.local.probe [--max-tokens 4096] [--timeout 1800]
++
++Sends one streamed Messages API request with thinking, two system blocks, a tool
++set, a tool call and its result, and cache markers, then reads the server's
++/slots and its log. The check passes when the answer is a complete event stream
++without an error event, /slots shows the sampling applied, and a random marker
++placed in the prompt is absent from the log. The request is synthetic: nothing
++from any target.
++
++The tool set is infra/local-inference/claude-code-tools.json, a fixture with the
++names and input schemas of Claude Code's built-in tools and descriptions of our
++own. It approximates what Claude Code sends; checks L2 and L3 use the real
++requests. The result goes to $ATR_DATA_DIR/local-inference/checks/l1-<model id>-<time>.json,
++without the key and without the response text (block types and lengths only).
++The exit status is non-zero when the check fails.
++"""
++
++import argparse
++import copy
++import json
++import secrets
++import subprocess
++import urllib.error
++import urllib.request
++from datetime import UTC, datetime
++from pathlib import Path
++
++from atr.local import config
++from atr.local.serve import CONTAINER
++
++TOOLS = Path(__file__).resolve().parents[4] / "infra" / "local-inference" / "claude-code-tools.json"
++EPHEMERAL = {"type": "ephemeral"}
++
++
++def build_request(alias: str, marker: str, max_tokens: int) -> dict:
++    tools = json.loads(TOOLS.read_text())
++    tools[-1] = {**tools[-1], "cache_control": EPHEMERAL}
++    return {
++        "model": alias,
++        "max_tokens": max_tokens,
++        "stream": True,
++        "thinking": {"type": "enabled", "budget_tokens": 1024},
++        "system": [
++            {"type": "text", "text": "You are a coding agent working in a synthetic repository."},
++            {"type": "text", "text": f"Session note {marker}. Answer briefly.", "cache_control": EPHEMERAL},
++        ],
++        "tools": tools,
++        "messages": [
++            {"role": "user", "content": f"List the files here. Reference {marker}."},
++            {"role": "assistant", "content": [
++                {"type": "text", "text": "I will list the directory."},
++                {"type": "tool_use", "id": "toolu_probe_1", "name": "Bash", "input": {"command": "ls"}},
++            ]},
++            {"role": "user", "content": [
++                {"type": "tool_result", "tool_use_id": "toolu_probe_1",
++                 "content": f"README.md\nmain.py\nutils.py\nnotes-{marker}.txt"},
++                {"type": "text", "text": "Summarize what you see in one sentence.",
++                 "cache_control": EPHEMERAL},
++            ]},
++        ],
++    }
++
++
++def stream(port: int, key: str, body: dict, timeout: int) -> dict:
++    """POST the request and read the server-sent events line by line."""
++    request = urllib.request.Request(
++        f"http://127.0.0.1:{port}/v1/messages",
++        data=json.dumps(body).encode(),
++        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
++    )
++    result = {"http_status": None, "events": {}, "blocks": [], "stop_reason": None,
++              "usage": None, "errors": []}
++    lengths: dict[int, int] = {}
++    try:
++        response = urllib.request.urlopen(request, timeout=timeout)
++    except urllib.error.HTTPError as error:
++        result["http_status"] = error.code
++        result["errors"].append(error.read().decode(errors="replace")[:500])
++        return result
++    with response:
++        result["http_status"] = response.status
++        for raw in response:
++            line = raw.decode(errors="replace").strip()
++            if not line.startswith("data:"):
++                continue
++            try:
++                event = json.loads(line[5:])
++            except json.JSONDecodeError:
++                result["errors"].append("unparseable event")
++                continue
++            kind = event.get("type", "?")
++            result["events"][kind] = result["events"].get(kind, 0) + 1
++            if kind == "content_block_start":
++                result["blocks"].append({"type": event["content_block"].get("type"), "length": 0})
++                lengths[event.get("index", len(result["blocks"]) - 1)] = len(result["blocks"]) - 1
++            elif kind == "content_block_delta":
++                delta = event.get("delta", {})
++                text = delta.get("text") or delta.get("thinking") or delta.get("partial_json") or ""
++                index = lengths.get(event.get("index"))
++                if index is not None:
++                    result["blocks"][index]["length"] += len(text)
++            elif kind == "message_delta":
++                result["stop_reason"] = event.get("delta", {}).get("stop_reason") or result["stop_reason"]
++                result["usage"] = event.get("usage") or result["usage"]
++            elif kind == "message_start" and result["usage"] is None:
++                result["usage"] = event.get("message", {}).get("usage")
++            elif kind == "error":
++                result["errors"].append(json.dumps(event.get("error", event))[:500])
++    return result
++
++
++def slots(port: int, key: str) -> list[dict]:
++    """Each slot's sampling and token counts; the prompt and generated text are dropped."""
++    request = urllib.request.Request(
++        f"http://127.0.0.1:{port}/slots", headers={"Authorization": f"Bearer {key}"}
++    )
++    with urllib.request.urlopen(request, timeout=30) as response:
++        data = json.load(response)
++    kept = []
++    for slot in data if isinstance(data, list) else []:
++        slot = copy.deepcopy(slot)
++        slot.pop("prompt", None)
++        slot.pop("generated", None)
++        kept.append(slot)
++    return kept
++
++
++def evaluate(stream_result: dict, sampling: list[dict], marker_in_log: bool) -> list[str]:
++    """The reasons check L1 fails; empty when it passes."""
++    reasons = []
++    events = stream_result["events"]
++    if stream_result["http_status"] != 200:
++        reasons.append(f"HTTP status {stream_result['http_status']}")
++    for needed in ("message_start", "content_block_start", "content_block_stop", "message_delta", "message_stop"):
++        if not events.get(needed):
++            reasons.append(f"no {needed} event")
++    if stream_result["stop_reason"] not in ("end_turn", "tool_use"):
++        reasons.append(f"stop_reason {stream_result['stop_reason']!r}")
++    if stream_result["errors"] or events.get("error"):
++        reasons.append(f"error: {stream_result['errors']}")
++    if not any(slot.get("params") for slot in sampling):
++        reasons.append("/slots shows no params")
++    if marker_in_log:
++        reasons.append("the marker appears in the server log")
++    return reasons
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
++    parser.add_argument("--max-tokens", type=int, default=4096)
++    parser.add_argument("--timeout", type=int, default=1800, help="seconds to wait for the response")
++    args = parser.parse_args()
++
++    records = config.data_dir()
++    try:
++        server = json.loads((records / "server.json").read_text())
++        key = (records / "server.key").read_text().strip()
++    except OSError:
++        raise SystemExit("no server is running (server.json or server.key is missing)")
++    port = server["port"]
++
++    marker = secrets.token_hex(8)
++    body = build_request(server["alias"], marker, args.max_tokens)
++    try:
++        answer = stream(port, key, body, args.timeout)
++        sampling = slots(port, key)
++    except (urllib.error.URLError, ConnectionError, TimeoutError) as error:
++        raise SystemExit(f"the server did not answer: {error}")
++    logs = subprocess.run(["docker", "logs", CONTAINER], capture_output=True, text=True)
++    marker_in_log = marker in logs.stdout or marker in logs.stderr
++
++    reasons = evaluate(answer, sampling, marker_in_log)
++    result = {
++        "check": "L1",
++        "model_id": server["model_id"],
++        "image": server["image"],
++        "build": server["build"],
++        "args": server["args"],
++        "tools": len(body["tools"]),
++        "http_status": answer["http_status"],
++        "events": answer["events"],
++        "blocks": answer["blocks"],
++        "stop_reason": answer["stop_reason"],
++        "usage": answer["usage"],
++        "errors": answer["errors"],
++        "sampling": sampling,
++        "marker_in_log": marker_in_log,
++        "passed": not reasons,
++        "reasons": reasons,
++        "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
++    }
++    serialized = json.dumps(result, indent=2)
++    if key in serialized:
++        raise SystemExit("the key appears in the check result; nothing was written")
++    out_dir = records / "checks"
++    out_dir.mkdir(parents=True, exist_ok=True)
++    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
++    out = out_dir / f"l1-{server['model_id']}-{stamp}.json"
++    out.write_text(serialized)
++    print(f"check L1 {'passed' if not reasons else 'FAILED'}: stop_reason {answer['stop_reason']}, "
++          f"blocks {[b['type'] for b in answer['blocks']]}; written to {out}")
++    if reasons:
++        raise SystemExit("; ".join(reasons))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/harness/src/atr/local/serve.py b/harness/src/atr/local/serve.py
+index 658f92d..fab59d8 100644
+--- a/harness/src/atr/local/serve.py
++++ b/harness/src/atr/local/serve.py
+@@ -2,6 +2,7 @@
+ 
+ Usage: python -m atr.local.serve start <model id> [--port 8090] [--context N] [--arg FLAG]...
+        python -m atr.local.serve stop
++       python -m atr.local.serve record <folder>
+        python -m atr.local.serve list
+ 
+ The server runs in Docker as the container atr-llm, with the GPU, the weights
+@@ -10,8 +11,15 @@ Task containers reach it at host.docker.internal:<port>, as they reach the
+ Collector. Each start makes a new API key, written to server.key in
+ $ATR_DATA_DIR/local-inference, and records what it started, without the key,
+ in server.json next to it. A start fails unless the weights are verified and
+-the server refuses requests that lack the key, Docker publishes the port on
+-127.0.0.1 only and the key is absent from the record.
++the server refuses requests that lack the key (count_tokens, /slots and
++/metrics), Docker publishes the port on 127.0.0.1 only and the key is absent
++from the record. A start also fails, before any container starts, unless
++--offline is among the flags and no download flag is.
++
++`record <folder>` copies the running server's state into a folder the launcher
++names: server.json, slots.json (every slot's prompt and generated text removed,
++since /slots returns them), metrics.prom and server.log. Nothing is written if
++the key would appear in any of them.
+ """
+ 
+ import argparse
+@@ -23,10 +31,24 @@ import time
+ import urllib.error
+ import urllib.request
+ from datetime import UTC, datetime
++from pathlib import Path
+ 
+ from atr.local import config
+ 
+ CONTAINER = "atr-llm"
++DOWNLOAD_FLAGS = {
++    "-hf", "--hf-repo", "-hfr", "--hf-file", "-hff", "-hft", "--hf-token",
++    "-mu", "--model-url", "-dr", "--docker-repo",
++}
++
++
++def check_args(args: list[str]) -> None:
++    """Fail unless the server is offline: --offline present and no download flag."""
++    if "--offline" not in args:
++        raise SystemExit("the server flags lack --offline; a start that could reach the network is refused")
++    found = sorted({a.split("=", 1)[0] for a in args} & DOWNLOAD_FLAGS)
++    if found:
++        raise SystemExit(f"download flags are refused: {found}")
+ 
+ 
+ def status(port: int, path: str, key: str | None = None, body: dict | None = None) -> int:
+@@ -124,6 +146,7 @@ def start(model_id: str, port: int, context: int | None, extra: list[str], timeo
+         *entry["args"],
+         *extra,
+     ]
++    check_args(args)
+     key = secrets.token_urlsafe(32)
+     vram_before = gpu_memory_used()
+     started = time.monotonic()
+@@ -154,6 +177,11 @@ def start(model_id: str, port: int, context: int | None, extra: list[str], timeo
+     if without_key != 401 or with_key != 200:
+         stop()
+         raise SystemExit(f"key check failed: {without_key} without the key, {with_key} with it")
++    for path in ("/slots", "/metrics"):
++        without_key, with_key = status(port, path), status(port, path, key)
++        if without_key != 401 or with_key != 200:
++            stop()
++            raise SystemExit(f"key check failed on {path}: {without_key} without the key, {with_key} with it")
+ 
+     # Fail closed unless Docker published the port on the loopback only.
+     details = inspect()
+@@ -172,6 +200,8 @@ def start(model_id: str, port: int, context: int | None, extra: list[str], timeo
+         "commit": server["commit"],
+         "context": context,
+         "args": args,
++        "offline": True,
++        "key_checked": ["/v1/messages/count_tokens", "/slots", "/metrics"],
+         "port": port,
+         "published": published,
+         "machine": machine(),
+@@ -193,6 +223,53 @@ def start(model_id: str, port: int, context: int | None, extra: list[str], timeo
+     return record
+ 
+ 
++def get(port: int, path: str, key: str) -> str:
++    request = urllib.request.Request(
++        f"http://127.0.0.1:{port}{path}", headers={"Authorization": f"Bearer {key}"}
++    )
++    with urllib.request.urlopen(request, timeout=30) as response:
++        return response.read().decode()
++
++
++def snapshot(dest: Path) -> list[Path]:
++    """Copy the running server's state into dest, without the key and without prompt text."""
++    records = config.data_dir()
++    try:
++        server_text = (records / "server.json").read_text()
++        key = (records / "server.key").read_text().strip()
++    except OSError:
++        raise SystemExit("no server is running (server.json or server.key is missing)")
++    if not running():
++        raise SystemExit(f"no server is running (container {CONTAINER} is not up)")
++    port = json.loads(server_text)["port"]
++    try:
++        slots = json.loads(get(port, "/slots", key))
++        metrics = get(port, "/metrics", key)
++    except (urllib.error.URLError, ConnectionError, TimeoutError, json.JSONDecodeError) as error:
++        raise SystemExit(f"the server did not answer: {error}")
++    # /slots returns each slot's detokenized prompt and generated text; drop them.
++    for slot in slots if isinstance(slots, list) else []:
++        slot.pop("prompt", None)
++        slot.pop("generated", None)
++    logs = subprocess.run(
++        ["docker", "logs", "--timestamps", CONTAINER], capture_output=True, text=True
++    )
++    files = {
++        "server.json": server_text,
++        "slots.json": json.dumps(slots, indent=2),
++        "metrics.prom": metrics,
++        "server.log": logs.stdout + logs.stderr,
++    }
++    if any(key in text for text in files.values()):
++        raise SystemExit("the key appears in the server's state; nothing was written")
++    dest.mkdir(parents=True, exist_ok=True)
++    written = []
++    for name, text in files.items():
++        (dest / name).write_text(text)
++        written.append(dest / name)
++    return written
++
++
+ def listing() -> None:
+     settings = config.load()
+     weights_dir = config.models_dir()
+@@ -212,6 +289,8 @@ def main() -> None:
+                        help="an extra server flag or value, repeatable, e.g. --arg=--n-cpu-moe --arg=30")
+     begin.add_argument("--timeout", type=int, default=1200, help="seconds to wait for the model to load")
+     commands.add_parser("stop", help="stop the server")
++    keep = commands.add_parser("record", help="copy the running server's state into a folder")
++    keep.add_argument("folder", type=Path)
+     commands.add_parser("list", help="list the models and whether their weights are verified")
+     args = parser.parse_args()
+ 
+@@ -219,6 +298,9 @@ def main() -> None:
+         print(json.dumps(start(args.model_id, args.port, args.context, args.extra, args.timeout), indent=2))
+     elif args.command == "stop":
+         stop()
++    elif args.command == "record":
++        for path in snapshot(args.folder):
++            print(path)
+     else:
+         listing()
+ 
+diff --git a/infra/local-inference/claude-code-tools.json b/infra/local-inference/claude-code-tools.json
+new file mode 100644
+index 0000000..e539e08
+--- /dev/null
++++ b/infra/local-inference/claude-code-tools.json
+@@ -0,0 +1,265 @@
++[
++  {
++    "name": "Agent",
++    "description": "Launch a sub-agent to handle a self-contained task and return its final report.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "description": {"type": "string", "description": "A short label for the task."},
++        "prompt": {"type": "string", "description": "The full task for the sub-agent."},
++        "subagent_type": {"type": "string", "description": "The kind of sub-agent to use."}
++      },
++      "required": ["description", "prompt", "subagent_type"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "Bash",
++    "description": "Run a shell command in the working directory and return its output.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "command": {"type": "string", "description": "The command to run."},
++        "timeout": {"type": "number", "description": "Milliseconds before the command is stopped."},
++        "description": {"type": "string", "description": "What the command does, in a few words."},
++        "run_in_background": {"type": "boolean", "description": "Run the command without waiting for it."}
++      },
++      "required": ["command"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "BashOutput",
++    "description": "Read the new output of a command running in the background.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "bash_id": {"type": "string", "description": "The id of the background command."},
++        "filter": {"type": "string", "description": "A regular expression; only matching lines are returned."}
++      },
++      "required": ["bash_id"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "KillShell",
++    "description": "Stop a command running in the background.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "shell_id": {"type": "string", "description": "The id of the background command."}
++      },
++      "required": ["shell_id"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "Edit",
++    "description": "Replace an exact piece of text in a file with another.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "file_path": {"type": "string", "description": "Absolute path of the file."},
++        "old_string": {"type": "string", "description": "The text to replace."},
++        "new_string": {"type": "string", "description": "The replacement text."},
++        "replace_all": {"type": "boolean", "default": false, "description": "Replace every occurrence."}
++      },
++      "required": ["file_path", "old_string", "new_string"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "MultiEdit",
++    "description": "Apply several exact replacements to one file in order.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "file_path": {"type": "string", "description": "Absolute path of the file."},
++        "edits": {
++          "type": "array",
++          "description": "The replacements, applied in order.",
++          "minItems": 1,
++          "items": {
++            "type": "object",
++            "properties": {
++              "old_string": {"type": "string"},
++              "new_string": {"type": "string"},
++              "replace_all": {"type": "boolean", "default": false}
++            },
++            "required": ["old_string", "new_string"],
++            "additionalProperties": false
++          }
++        }
++      },
++      "required": ["file_path", "edits"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "ExitPlanMode",
++    "description": "Present a plan and leave planning mode.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "plan": {"type": "string", "description": "The plan, in Markdown."}
++      },
++      "required": ["plan"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "Glob",
++    "description": "Find files whose names match a pattern.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "pattern": {"type": "string", "description": "The glob pattern."},
++        "path": {"type": "string", "description": "The folder to search; the working directory if absent."}
++      },
++      "required": ["pattern"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "Grep",
++    "description": "Search file contents with a regular expression.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "pattern": {"type": "string", "description": "The regular expression."},
++        "path": {"type": "string", "description": "The file or folder to search."},
++        "glob": {"type": "string", "description": "Only search files matching this pattern."},
++        "output_mode": {"type": "string", "enum": ["content", "files_with_matches", "count"]},
++        "-B": {"type": "number", "description": "Lines of context before each match."},
++        "-A": {"type": "number", "description": "Lines of context after each match."},
++        "-C": {"type": "number", "description": "Lines of context around each match."},
++        "-n": {"type": "boolean", "description": "Show line numbers."},
++        "-i": {"type": "boolean", "description": "Ignore case."},
++        "type": {"type": "string", "description": "A file type to search, such as py."},
++        "head_limit": {"type": "number", "description": "Return only the first N results."},
++        "multiline": {"type": "boolean", "description": "Let a pattern span lines."}
++      },
++      "required": ["pattern"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "NotebookEdit",
++    "description": "Replace, insert or delete a cell of a Jupyter notebook.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "notebook_path": {"type": "string", "description": "Absolute path of the notebook."},
++        "cell_id": {"type": "string", "description": "The cell to change, or to insert after."},
++        "new_source": {"type": "string", "description": "The new cell content."},
++        "cell_type": {"type": "string", "enum": ["code", "markdown"]},
++        "edit_mode": {"type": "string", "enum": ["replace", "insert", "delete"]}
++      },
++      "required": ["notebook_path", "new_source"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "Read",
++    "description": "Read a file, optionally a range of its lines.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "file_path": {"type": "string", "description": "Absolute path of the file."},
++        "offset": {"type": "number", "description": "The line to start from."},
++        "limit": {"type": "number", "description": "How many lines to read."}
++      },
++      "required": ["file_path"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "Skill",
++    "description": "Run a named skill.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "command": {"type": "string", "description": "The name of the skill."}
++      },
++      "required": ["command"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "SlashCommand",
++    "description": "Run a custom slash command.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "command": {"type": "string", "description": "The command with its arguments."}
++      },
++      "required": ["command"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "TodoWrite",
++    "description": "Replace the task list the agent keeps for the current work.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "todos": {
++          "type": "array",
++          "description": "The full, updated list.",
++          "items": {
++            "type": "object",
++            "properties": {
++              "content": {"type": "string", "minLength": 1},
++              "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]},
++              "activeForm": {"type": "string", "minLength": 1}
++            },
++            "required": ["content", "status", "activeForm"],
++            "additionalProperties": false
++          }
++        }
++      },
++      "required": ["todos"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "WebFetch",
++    "description": "Fetch a web page and answer a question about it.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "url": {"type": "string", "format": "uri", "description": "The page to fetch."},
++        "prompt": {"type": "string", "description": "What to extract from the page."}
++      },
++      "required": ["url", "prompt"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "WebSearch",
++    "description": "Search the web and return the results.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "query": {"type": "string", "minLength": 2, "description": "The search query."},
++        "allowed_domains": {"type": "array", "items": {"type": "string"}, "description": "Only these domains."},
++        "blocked_domains": {"type": "array", "items": {"type": "string"}, "description": "Never these domains."}
++      },
++      "required": ["query"],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "Write",
++    "description": "Write a file, replacing it if it exists.",
++    "input_schema": {
++      "type": "object",
++      "properties": {
++        "file_path": {"type": "string", "description": "Absolute path of the file."},
++        "content": {"type": "string", "description": "The full content."}
++      },
++      "required": ["file_path", "content"],
++      "additionalProperties": false
++    }
++  }
++]
+diff --git a/infra/local-inference/models.toml b/infra/local-inference/models.toml
+index 5d71e3a..c597a26 100644
+--- a/infra/local-inference/models.toml
++++ b/infra/local-inference/models.toml
+@@ -1,6 +1,9 @@
+ # Open-weight models and the inference server of the local models plan
+ # (documentation/plans/local-models.md, D-057, D-058).
+ #
++# The flags are final for Phase 2 (2026-11-04) and recorded in
++# documentation/research/local-route.md.
++#
+ # Every weight file is pinned by repository revision and SHA-256, and the server
+ # image by digest. From harness/, in WSL:
+ #   uv run python -m atr.local.fetch            download and verify the main stage
+@@ -30,6 +33,10 @@ args = [
+     "--parallel", "1",
+     "--metrics",
+     "--offline",
++    # The web UI is not used; /slots is enabled explicitly because check L1 and
++    # `serve record` read it (it returns prompt text, which the copy drops).
++    "--no-webui",
++    "--slots",
+ ]
+ 
+ # L-MoE. Thinking, precise coding: the model card's sampling. 34 layers of experts
+@@ -50,6 +57,10 @@ baseline = "qwen3.6-35b-a3b-ud-q3_k_xl-20261104T204406Z.json"
+ args = [
+     "--n-gpu-layers", "999",
+     "--n-cpu-moe", "34",
++    # Prompt-cache RAM in MiB: the container peaked at 13.4 GiB of the VM's 17.6 GiB,
++    # leaving about 4 GiB for this cache, the task container and the other containers
++    # (the default of 8192 does not fit). Check L5 revisits it.
++    "--cache-ram", "2048",
+     "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",
+     "--chat-template-kwargs", '{"enable_thinking":true}',
+ ]
+@@ -68,6 +79,9 @@ context = 131072
+ args = [
+     "--n-gpu-layers", "999",
+     "--n-cpu-moe", "34",
++    # Prompt-cache RAM in MiB: same budget as the main L-MoE entry (a smaller file
++    # only leaves more room). Check L5 revisits it.
++    "--cache-ram", "2048",
+     "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",
+     "--chat-template-kwargs", '{"enable_thinking":true}',
+ ]
+@@ -107,6 +121,10 @@ context = 131072
+ baseline = "qwen3.5-9b-q4_k_m-20261104T192021Z.json"
+ args = [
+     "--n-gpu-layers", "999",
++    # Prompt-cache RAM in MiB: the container peaked at about 5.6 GiB of the VM's
++    # 17.6 GiB, so 4 GiB fits beside the task container and the others. Check L5
++    # revisits it.
++    "--cache-ram", "4096",
+     "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",
+     "--chat-template-kwargs", '{"enable_thinking":true}',
+ ]

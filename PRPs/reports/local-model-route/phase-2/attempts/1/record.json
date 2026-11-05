@@ -1,0 +1,20 @@
+{
+  "attempt": 1,
+  "verdict": "IMPLEMENTATION_COMPLETE",
+  "files_changed": [
+    "documentation/research/local-route.md",
+    "harness/src/atr/local/probe.py",
+    "harness/src/atr/local/serve.py",
+    "infra/local-inference/claude-code-tools.json",
+    "infra/local-inference/models.toml"
+  ],
+  "validation": {
+    "level_1": "PASS",
+    "level_2": "PASS",
+    "level_3": "PASS"
+  },
+  "validation_notes": "Check L1 passed for L-Small and L-MoE on the first try (end_turn, thinking and text blocks, sampling 0.6/0.95/20/0/0 applied, marker absent from the log). The advisory on Task 8 was handled by running the key-in-results check before each serve stop; Task 8's literal post-stop loop was not run.",
+  "base_commit": "985fae641f083f13fb1d9e3dd8b5e448b399e0b6",
+  "dispatched_at": "2026-11-04T21:14:30Z",
+  "returned_at": "2026-11-04T21:29:26Z"
+}

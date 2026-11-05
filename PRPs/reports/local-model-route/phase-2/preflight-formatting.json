@@ -1,0 +1,7 @@
+{
+  "formatter_cmd": null,
+  "discovery_source": "none — no formatter_cmd in methodology.md frontmatter and no package.json scripts.format",
+  "files_scoped": [],
+  "outcome": "omitted — none — no formatter_cmd in methodology.md frontmatter and no package.json scripts.format",
+  "exit_code_or_null": null
+}

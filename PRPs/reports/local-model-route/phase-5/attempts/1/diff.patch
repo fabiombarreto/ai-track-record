@@ -1,0 +1,342 @@
+diff --git a/documentation/research/local-route.md b/documentation/research/local-route.md
+index 659f92e..2899437 100644
+--- a/documentation/research/local-route.md
++++ b/documentation/research/local-route.md
+@@ -11,7 +11,7 @@ This report records the local model route ([plan](../plans/local-models.md), D-0
+ | WP0: weights downloaded and verified onto D:, speeds and power measured at 32k, 64k and 128k | Done | 2026-11-04 |
+ | WP0: choices recorded in `infra/local-inference/models.toml` (quantization, context, experts on the CPU, slots) | Done | 2026-11-04 |
+ | WP1: the server's checks (key, loopback, prompt cache, flags); check L1 passed for L-Small and L-MoE | Done | 2026-11-04 |
+-| WP2: the harness changes | In progress: the agent's route option and its check run (the run failed at the server's chat template, see Agent route) and the launcher and allowlists (see Launcher and allowlists) are done; the store and export changes remain | 2026-11-04 |
++| WP2: the harness changes | Done: the agent's route option and its check run (the run failed at the server's chat template, see Agent route), the launcher and allowlists (see Launcher and allowlists), and the store, budget and export (see Store, budget and export) | 2026-11-04 |
+ | WP3: the compatibility checks on the synthetic task | Not started | |
+ 
+ ## Machine baseline
+@@ -188,6 +188,36 @@ Into every trial folder, `server/` holds `server.json`, `slots.json`, `metrics.p
+ | Key | The launcher's own scan found the key in none of `launch.json`, the launch log and the trial's `server/` files |
+ | Independent review | Not run |
+ 
++## Store, budget and export
++
++### Trial columns
++
++| Column | Source |
++|---|---|
++| `route` | `agent/route.json`'s `provider`, else the job config's `route`, else `anthropic` for a trial with an SDK result; null for agents without one |
++| `provider`, `quantization`, `server_build` | `agent/route.json` (`provider`, `quantization`, `build`) |
++| `cost_usd`, `cost_source` | A local run: zero with source `local`. An API run: the SDK's total with source `sdk` |
++| `sdk_cost_estimate_usd` | A local run's SDK total, kept apart: Claude Code's estimate for a model it cannot price, not money spent |
++| `energy_wh`, `power_mean_w` | `server/power.json`; the GPU's energy only, not the whole system's |
++| `server_prompt_tokens`, `server_cached_prompt_tokens`, `server_output_tokens` | `server/metrics.prom`: llama.cpp's processed prompt, reused prompt and generated token counters |
++| `native_outcome` of a run that failed before an SDK result | The exception type and the first line of Harbor's message when that line is the agent's own; for Harbor's "Command failed" line, the error of the last assistant message in `agent/messages.jsonl` (for example `server_error`), else the exception type. `outcome` is unchanged (`error`) |
++
++### Rules
++
++- Reconciliation: API runs keep today's rule (tokens and cost across the SDK, events and metrics). A local run compares the four token counts across the SDK, events and metrics, and the server's prompt total (processed plus reused) against the SDK's total input (input plus cache read plus cache creation) and its output against the SDK's output. No cost is compared, so a cost the route cannot have never reads as a mismatch. The view gains `route`, `server_prompt`, `server_output` and `sdk_total_input`.
++- Budget: `atr.ops.budget` leaves `lc-` jobs out of the total checked against the ceiling and prints them on their own line (the SDK's estimate, and the reviews' cost as Anthropic credit of the local models experiment).
++- Export: allowlist version 3 adds `route`, `provider`, `quantization`, `cost_source`, `energy_wh` and a `label` (`workflow portability, quantized local model` for local runs, null otherwise). A local run's model is published as its alias, without the `local/` prefix, which the leak check's relative-path pattern would otherwise read as a file path. The leak check is unchanged.
++
++### Checks
++
++| Item | Result |
++|---|---|
++| Synthetic check data (one API and one local trial, four sources agreeing, in a temporary folder) | Both trials `match`; the local trial loads with route `local`, cost 0.0 source `local`, SDK estimate 0.37, 1.5 Wh and 50 server output tokens; the API trial keeps 0.5 with source `sdk`; the budget reads `spent: US$ 0.50`, passes `--next 799.4` and stops `--next 799.6`; the export labels the local run and publishes its model as `qwen3.5-9b` under allowlist version 3 |
++| Real local trials (3, Phases 3 and 4) | Loaded with route `local`, source `local`, cost 0, build `b12063`, quantization `q4_k_m`, outcome `error` with native reason `server_error` (the chat template's HTTP 500), server counts 0; the Phase 4 trial carries 2.269 Wh (the Phase 3 trials had no power record) |
++| The MVP's numbers | Unchanged: 35 trials and US$ 149.80889974 over `m2-` and `m3-` jobs before and after; the budget's spent total US$ 163.81 is the same, with the `lc-` line added |
++| Export of the two local jobs | Passed the leak check, with route and label, into a temporary folder and a temporary publication record; the real `publications.jsonl` stayed at 2 lines |
++| Matching on a completed local run | Waits for check L7 in Phase 6: no local run has completed a request yet |
++
+ ## Compatibility checks
+ 
+ The check is run by `atr.local.probe` on a synthetic request: a streamed Messages API request with thinking, two system blocks, a tool set, a tool call and its result, and cache markers, and a random marker that must not appear in the server's log. The tool set is a fixture (`infra/local-inference/claude-code-tools.json`) with the names and input schemas of Claude Code's built-in tools and descriptions of our own; it approximates what Claude Code sends, and checks L2 and L3 use the real requests.
+diff --git a/harness/src/atr/ops/budget.py b/harness/src/atr/ops/budget.py
+index 67b6f7c..0ad68fa 100644
+--- a/harness/src/atr/ops/budget.py
++++ b/harness/src/atr/ops/budget.py
+@@ -13,6 +13,11 @@ The sum is a lower bound of what was billed: runs lost before writing a
+ result, and spend outside the harness, are not in it. The operator's credit
+ balance stays the check against billing.
+ 
++Jobs whose name starts with `lc-` belong to the local models experiment (D-058)
++and never count against the ceiling. They are reported on their own line: the
++SDK's cost of such a run is an estimate for a model it cannot price, not money
++spent, and their reviews' cost is Anthropic credit counted with that experiment.
++
+ With --next, exits 1 when the spend so far plus <usd> would pass the ceiling,
+ so a batch stops before a run that could cross it.
+ """
+@@ -26,6 +31,7 @@ from pathlib import Path
+ 
+ CEILING_USD = 800.0
+ TARGET_USD = 400.0
++LOCAL_PREFIX = "lc-"
+ 
+ 
+ def read_json(path: Path) -> dict:
+@@ -56,12 +62,26 @@ def main() -> None:
+     parser.add_argument("--prefix", default="m3-", help="job prefix reported on its own")
+     args = parser.parse_args()
+ 
+-    spend = spend_by_job(args.data_dir / "jobs")
++    jobs_dir = args.data_dir / "jobs"
++    all_spend = spend_by_job(jobs_dir)
++    spend = {job: cost for job, cost in all_spend.items() if not job.startswith(LOCAL_PREFIX)}
+     total = sum(spend.values())
+     batch = sum(cost for job, cost in spend.items() if job.startswith(args.prefix))
+     print(f"spent: US$ {total:.2f} (jobs {args.prefix}*: US$ {batch:.2f}); "
+           f"target US$ {TARGET_USD:.0f}, ceiling US$ {CEILING_USD:.0f}, "
+           f"left US$ {CEILING_USD - total:.2f}")
++    local = sorted(job for job in all_spend if job.startswith(LOCAL_PREFIX))
++    if local:
++        estimate = review = 0.0
++        for trial in (p.parent for p in jobs_dir.glob("*/*/config.json") if p.parent.parent.name in local):
++            if (read_json(trial / "config.json").get("source_trial") or {}).get("action") != "regrade":
++                estimate += read_json(trial / "agent" / "result.json").get("total_cost_usd") or 0.0
++            costs = [c for c in read_json(trial / "review" / "review.json").get("cost_usd_per_turn") or []
++                     if c is not None]
++            review += costs[-1] if costs else 0.0
++        print(f"local jobs {LOCAL_PREFIX}* ({len(local)}), not counted above: "
++              f"SDK estimate US$ {estimate:.2f} (not money spent), "
++              f"reviews US$ {review:.2f} (Anthropic credit, local models experiment)")
+     if args.next is not None and total + args.next > CEILING_USD:
+         print(f"stop: the next run (up to US$ {args.next:.2f}) could pass the ceiling")
+         sys.exit(1)
+diff --git a/harness/src/atr/store/export.py b/harness/src/atr/store/export.py
+index 0cbe8f9..bfe7a91 100644
+--- a/harness/src/atr/store/export.py
++++ b/harness/src/atr/store/export.py
+@@ -5,8 +5,11 @@ Usage: python -m atr.store.export <out dir> <job>... [--data-dir <dir>] [--db <f
+ Deny by default: each run, task and target is copied through an allowlist of
+ fields for its target's visibility class, and anything not listed is withheld.
+ For a private target that leaves the codename and generic description, the
+-task's category and difficulty, per-run metrics, the size of each run's
+-changes and the review findings as counts by category, never their text.
++task's category and difficulty, per-run metrics, the size of each run's changes
++and the review findings as counts by category, never their text. Each run
++carries its route, provider, quantization, cost source and GPU energy; a local
++run also carries a label naming it workflow portability on a quantized model,
++and its model is published as the alias (version 3 of the allowlist).
+ 
+ Before anything is written, a leak check scans the whole export for the
+ private terms listed in <data dir>/leak-terms.txt (one per line, kept outside
+@@ -28,7 +31,7 @@ from pathlib import Path
+ 
+ import duckdb
+ 
+-ALLOWLIST_VERSION = "2"
++ALLOWLIST_VERSION = "3"
+ 
+ RUN_FIELDS = (
+     "job", "trial", "codename", "task_id", "config", "model", "agent_version",
+@@ -37,7 +40,9 @@ RUN_FIELDS = (
+     "files_changed", "lines_added", "lines_removed", "docs_files_changed", "docs_lines_added",
+     "new_static_findings", "review_findings", "skipped_steps", "skipped_flagged",
+     "relay_deviations", "workflow", "workflow_version", "workflow_source", "started_at",
++    "route", "provider", "quantization", "cost_source", "energy_wh",
+ )
++LOCAL_LABEL = "workflow portability, quantized local model"
+ PUBLIC_RUN_FIELDS = ("task_title",)
+ TASK_FIELDS = ("codename", "task_id", "category", "difficulty")
+ PUBLIC_TASK_FIELDS = ("task_title",)
+@@ -97,6 +102,11 @@ def build_export(con: duckdb.DuckDBPyConnection, jobs: list[str]) -> dict[str, o
+         public = trial["visibility"] == "public"
+         fields = RUN_FIELDS + (PUBLIC_RUN_FIELDS if public else ())
+         run = {field: jsonable(trial[field]) for field in fields}
++        local = trial["route"] == "local"
++        run["label"] = LOCAL_LABEL if local else None
++        if local:
++            # The alias, not the route's `local/<alias>` id, which the leak check reads as a path.
++            run["model"] = str(trial["model"]).removeprefix("local/")
+         usage = tokens.get((trial["job"], trial["trial"]), {})
+         run |= {key: usage.get(key) for key in
+                 ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens")}
+diff --git a/harness/src/atr/store/load.py b/harness/src/atr/store/load.py
+index ae7c1e1..fe91bfc 100644
+--- a/harness/src/atr/store/load.py
++++ b/harness/src/atr/store/load.py
+@@ -51,6 +51,10 @@ CREATE TABLE trials (
+     relay_deviations INTEGER,
+     workflow TEXT, workflow_version TEXT, workflow_digest TEXT, workflow_source TEXT,
+     regraded_in TEXT,
++    route TEXT, provider TEXT, quantization TEXT, server_build TEXT, cost_source TEXT,
++    sdk_cost_estimate_usd DOUBLE, energy_wh DOUBLE, power_mean_w DOUBLE,
++    server_prompt_tokens BIGINT, server_cached_prompt_tokens BIGINT,
++    server_output_tokens BIGINT,
+     PRIMARY KEY (job, trial)
+ );
+ CREATE TABLE review_findings (
+@@ -80,8 +84,9 @@ CREATE TABLE metric_points (
+ 
+ CREATE VIEW reconciliation AS
+ WITH sdk AS (
+-    SELECT job, trial, model, input_tokens, output_tokens,
+-           cache_read_tokens, cache_creation_tokens, cost_usd
++    -- A local run's modelUsage may name the alias with a `local/` prefix.
++    SELECT job, trial, regexp_replace(model, '^local/', '') AS model, input_tokens,
++           output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd
+     FROM model_usage
+ ), ev AS (
+     SELECT job, trial, model,
+@@ -101,7 +106,7 @@ WITH sdk AS (
+ )
+ SELECT
+     coalesce(sdk.job, ev.job) AS job, coalesce(sdk.trial, ev.trial) AS trial,
+-    coalesce(sdk.model, ev.model) AS model, ev.requests,
++    coalesce(sdk.model, ev.model) AS model, tr.route, ev.requests,
+     sdk.input_tokens AS sdk_input, ev.input_tokens AS event_input, met.input_tokens AS metric_input,
+     sdk.output_tokens AS sdk_output, ev.output_tokens AS event_output, met.output_tokens AS metric_output,
+     sdk.cache_read_tokens AS sdk_cache_read, ev.cache_read_tokens AS event_cache_read,
+@@ -109,9 +114,26 @@ SELECT
+     sdk.cache_creation_tokens AS sdk_cache_creation, ev.cache_creation_tokens AS event_cache_creation,
+     met.cache_creation_tokens AS metric_cache_creation,
+     sdk.cost_usd AS sdk_cost, ev.cost_usd AS event_cost, met.cost_usd AS metric_cost,
++    tr.server_prompt_tokens + tr.server_cached_prompt_tokens AS server_prompt,
++    tr.server_output_tokens AS server_output,
++    CASE WHEN tr.route = 'local'
++         THEN sdk.input_tokens + sdk.cache_read_tokens + sdk.cache_creation_tokens END AS sdk_total_input,
+     CASE
+         WHEN ev.requests IS NULL THEN 'no telemetry'
+         WHEN sdk.model IS NULL THEN 'model missing from modelUsage'
++        -- A local run has no API cost to compare: tokens only, with the server as a fourth source.
++        WHEN tr.route = 'local'
++        THEN CASE
++            WHEN sdk.input_tokens = ev.input_tokens AND sdk.output_tokens = ev.output_tokens
++             AND sdk.cache_read_tokens = ev.cache_read_tokens
++             AND sdk.cache_creation_tokens = ev.cache_creation_tokens
++             AND ev.input_tokens = met.input_tokens AND ev.output_tokens = met.output_tokens
++             AND ev.cache_read_tokens = met.cache_read_tokens
++             AND ev.cache_creation_tokens = met.cache_creation_tokens
++             AND tr.server_prompt_tokens + tr.server_cached_prompt_tokens
++                 = sdk.input_tokens + sdk.cache_read_tokens + sdk.cache_creation_tokens
++             AND tr.server_output_tokens = sdk.output_tokens
++            THEN 'match' ELSE 'mismatch' END
+         WHEN sdk.input_tokens = ev.input_tokens AND sdk.output_tokens = ev.output_tokens
+          AND sdk.cache_read_tokens = ev.cache_read_tokens
+          AND sdk.cache_creation_tokens = ev.cache_creation_tokens
+@@ -125,7 +147,8 @@ SELECT
+ FROM sdk
+ FULL JOIN ev USING (job, trial, model)
+ LEFT JOIN met ON met.job = coalesce(sdk.job, ev.job)
+-    AND met.trial = coalesce(sdk.trial, ev.trial) AND met.model = coalesce(sdk.model, ev.model);
++    AND met.trial = coalesce(sdk.trial, ev.trial) AND met.model = coalesce(sdk.model, ev.model)
++LEFT JOIN trials tr ON tr.job = coalesce(sdk.job, ev.job) AND tr.trial = coalesce(sdk.trial, ev.trial);
+ 
+ CREATE VIEW spend AS
+ SELECT job, trial, config, workflow_version, model, started_at,
+@@ -235,8 +258,59 @@ TRIAL_COLUMNS = (
+     "review_completed", "review_findings", "review_cost_usd",
+     "protocol_checked", "skipped_steps", "skipped_flagged", "relay_deviations",
+     "workflow", "workflow_version", "workflow_digest", "workflow_source", "regraded_in",
++    "route", "provider", "quantization", "server_build", "cost_source",
++    "sdk_cost_estimate_usd", "energy_wh", "power_mean_w",
++    "server_prompt_tokens", "server_cached_prompt_tokens", "server_output_tokens",
+ )
+ 
++SERVER_COUNTERS = {
++    "llamacpp:prompt_tokens_total": "server_prompt_tokens",
++    "llamacpp:prompt_tokens_cached_total": "server_cached_prompt_tokens",
++    "llamacpp:tokens_predicted_total": "server_output_tokens",
++}
++
++
++def server_counters(path: Path) -> dict[str, int | None]:
++    """The server's token counters from its Prometheus text; None when absent."""
++    counters: dict[str, int | None] = dict.fromkeys(SERVER_COUNTERS.values())
++    if not path.exists():
++        return counters
++    for line in path.read_text(errors="replace").splitlines():
++        if line.startswith("#"):
++            continue
++        parts = line.split()
++        if len(parts) >= 2 and parts[0] in SERVER_COUNTERS:
++            try:
++                counters[SERVER_COUNTERS[parts[0]]] = int(float(parts[-1]))
++            except ValueError:
++                continue
++    return counters
++
++
++def failure_cause(exception: dict, trial_dir: Path) -> str:
++    """Name the cause of a run that failed before an SDK result.
++
++    The exception type, then the first line of Harbor's message when it is the
++    agent's own; Harbor's "Command failed" line holds the runner's command line
++    (container paths), so the last assistant message's error stands in for it.
++    """
++    kind = exception.get("exception_type") or "error"
++    lines = (exception.get("exception_message") or "").strip().splitlines()
++    first = lines[0].strip() if lines else ""
++    if first and not first.startswith("Command failed"):
++        return f"{kind}: {first[:200]}"
++    error = None
++    messages = trial_dir / "agent" / "messages.jsonl"
++    if messages.exists():
++        for line in messages.read_text(errors="replace").splitlines():
++            try:
++                message = json.loads(line)
++            except json.JSONDecodeError:
++                continue
++            if message.get("_type") == "AssistantMessage" and message.get("error"):
++                error = message["error"]
++    return str(error) if error else kind
++
+ 
+ def latest_regrades(jobs_dir: Path) -> dict[str, Path]:
+     """The latest regrade of each regraded trial, by the original trial's folder."""
+@@ -281,6 +355,19 @@ def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path, verdicts: dict)
+         exception_type = exception.get("exception_type") if exception else None
+         outcome = normalize_outcome(exception_type, agent.get("subtype"))
+         native = agent.get("subtype")
++        if exception and native is None:
++            native = failure_cause(exception, trial_dir)
++        route_record = read_json(trial_dir / "agent" / "route.json")
++        power = read_json(trial_dir / "server" / "power.json")
++        counters = server_counters(trial_dir / "server" / "metrics.prom")
++        route = (route_record.get("provider") or kwargs.get("route")
++                 or ("anthropic" if agent.get("subtype") is not None else None))
++        sdk_cost = agent.get("total_cost_usd")
++        if route == "local":
++            # No API cost: the SDK's own figure is an estimate for a model it cannot price.
++            cost, cost_source, sdk_estimate = 0.0, "local", sdk_cost
++        else:
++            cost, cost_source, sdk_estimate = sdk_cost, None if sdk_cost is None else "sdk", None
+         halt = protocol.get("orchestrator_outcome")
+         if outcome == "completed" and halt and not str(halt).upper().startswith("ALL_PHASES"):
+             # A relay HALT ends as a successful SDK result.
+@@ -298,7 +385,7 @@ def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path, verdicts: dict)
+             "num_turns": agent.get("atr_num_turns", agent.get("num_turns")),
+             "wall_ms": agent.get("atr_wall_ms"), "duration_ms": agent.get("duration_ms"),
+             "duration_api_ms": agent.get("duration_api_ms"),
+-            "cost_usd": agent.get("total_cost_usd"),
++            "cost_usd": cost,
+             "reward": rewards.get("reward"), "criteria_satisfied": rewards.get("criteria_satisfied"),
+             "existing_tests_pass": rewards.get("existing_tests_pass"), "exception": exception_type,
+             "changes_patch_bytes": patch.stat().st_size if patch.exists() else None,
+@@ -322,7 +409,12 @@ def load_trials(con: duckdb.DuckDBPyConnection, jobs_dir: Path, verdicts: dict)
+             "workflow": workflow.get("workflow"), "workflow_version": workflow.get("version"),
+             "workflow_digest": workflow.get("digest"), "workflow_source": workflow.get("source"),
+             "regraded_in": graded_dir.parent.name if graded_dir != trial_dir else None,
+-        }
++            "route": route, "provider": route_record.get("provider"),
++            "quantization": route_record.get("quantization"),
++            "server_build": route_record.get("build"), "cost_source": cost_source,
++            "sdk_cost_estimate_usd": sdk_estimate,
++            "energy_wh": power.get("energy_wh"), "power_mean_w": power.get("power_mean_w"),
++        } | counters
+         con.execute(
+             f"INSERT INTO trials ({', '.join(TRIAL_COLUMNS)}) "
+             f"VALUES ({', '.join('?' * len(TRIAL_COLUMNS))})",
+@@ -442,11 +534,11 @@ def main() -> None:
+     print(f"{db}: {trials} trials, {events} events, {points} metric points")
+ 
+     rows = con.execute(
+-        "SELECT job, trial, model, requests, status FROM reconciliation "
++        "SELECT job, trial, model, route, requests, status FROM reconciliation "
+         "WHERE status <> 'no telemetry' ORDER BY job, trial, model"
+     ).fetchall()
+-    for job, trial, model, requests, status in rows:
+-        print(f"  {job}/{trial} {model}: {requests} requests, {status}")
++    for job, trial, model, route, requests, status in rows:
++        print(f"  {job}/{trial} {model} [{route}]: {requests} requests, {status}")
+     con.close()
+ 
+ 
