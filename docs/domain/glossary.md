@@ -30,7 +30,7 @@ The authoritative vocabulary is in `documentation/product/02-concepts.md`. This 
 | Blind confirmation | `atr.review.confirm`, `confirmations/` | The operator grades a sample of review findings without knowing the configuration |
 | Skipped step | `checks/skipped_steps.json`, `skipped_flagged` | A protocol step the workflow skipped; flagged when its summary does not mention it. Never a grade (D-051) |
 | Deviation | `relay_deviations` | What relay 0.49.0 itself recorded as departures from its protocol |
-| Route | `route.json` (planned) | How a model is reached: Anthropic's API directly, or a local inference server |
+| Route | `agent/route.json` | How a model is reached: Anthropic's API directly, or a local inference server |
 | Local model | `models.toml` entry: id, alias, role | An open-weight model served by llama.cpp on the operator's machine (D-057) |
 | Role (local plan) | `L-MoE`, `L-Small`, `L-Alt` | The configurations of the local models plan |
 | Stage (local plan) | `main`, `fallback`, `option`, `candidate` | Which model files `atr.local.fetch` downloads by default |

@@ -2,6 +2,7 @@
 
 Usage: python -m atr.local.serve start <model id> [--port 8090] [--context N] [--arg FLAG]...
        python -m atr.local.serve stop
+       python -m atr.local.serve record <folder>
        python -m atr.local.serve list
 
 The server runs in Docker as the container atr-llm, with the GPU, the weights
@@ -10,10 +11,22 @@ Task containers reach it at host.docker.internal:<port>, as they reach the
 Collector. Each start makes a new API key, written to server.key in
 $ATR_DATA_DIR/local-inference, and records what it started, without the key,
 in server.json next to it. A start fails unless the weights are verified and
-the server refuses requests that lack the key.
+the server refuses requests that lack the key (count_tokens, /slots and
+/metrics), Docker publishes the port on 127.0.0.1 only and the key is absent
+from the record. A start also fails, before any container starts, unless
+--offline is among the flags and no download flag is.
+A model's chat-template override lives in infra/local-inference/templates, mounted
+read-only at /templates; the start refuses a template whose SHA-256 differs from the
+model entry's chat_template_sha256, and server.json records that digest.
+
+`record <folder>` copies the running server's state into a folder the launcher
+names: server.json, slots.json (every slot's prompt and generated text removed,
+since /slots returns them), metrics.prom and server.log. Nothing is written if
+the key would appear in any of them.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import secrets
@@ -22,10 +35,50 @@ import time
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
+from pathlib import Path
 
 from atr.local import config
 
 CONTAINER = "atr-llm"
+TEMPLATES_MOUNT = "/templates"
+DOWNLOAD_FLAGS = {
+    "-hf", "--hf-repo", "-hfr", "--hf-file", "-hff", "-hft", "--hf-token",
+    "-mu", "--model-url", "-dr", "--docker-repo",
+}
+
+
+def templates_folder() -> Path:
+    """The pinned chat-template overrides, in the repository's infra folder."""
+    return Path(__file__).resolve().parents[4] / "infra" / "local-inference" / "templates"
+
+
+def check_args(args: list[str], entry: dict | None = None, templates_dir: Path | None = None) -> None:
+    """Fail unless the server is offline: --offline present and no download flag.
+
+    A --chat-template-file must name a file under /templates/ whose SHA-256 equals the
+    model entry's chat_template_sha256 (the pinned override), else the start is refused.
+    """
+    if "--offline" not in args:
+        raise SystemExit("the server flags lack --offline; a start that could reach the network is refused")
+    found = sorted({a.split("=", 1)[0] for a in args} & DOWNLOAD_FLAGS)
+    if found:
+        raise SystemExit(f"download flags are refused: {found}")
+    for index, arg in enumerate(args):
+        if arg.split("=", 1)[0] != "--chat-template-file":
+            continue
+        value = arg.split("=", 1)[1] if "=" in arg else (args[index + 1] if index + 1 < len(args) else "")
+        if not value.startswith(TEMPLATES_MOUNT + "/"):
+            raise SystemExit(f"--chat-template-file must name a file under {TEMPLATES_MOUNT}/: {value}")
+        pinned = (entry or {}).get("chat_template_sha256")
+        path = (templates_dir or templates_folder()) / value.removeprefix(TEMPLATES_MOUNT + "/")
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError as error:
+            raise SystemExit(f"the chat template {value} cannot be read: {error}")
+        if not pinned or digest != pinned:
+            raise SystemExit(
+                f"the chat template {path.name} has digest {digest}, not the pinned {pinned}; start refused"
+            )
 
 
 def status(port: int, path: str, key: str | None = None, body: dict | None = None) -> int:
@@ -64,6 +117,34 @@ def container_memory() -> str | None:
     return out.stdout.strip() or None
 
 
+def inspect() -> dict:
+    out = subprocess.run(["docker", "inspect", CONTAINER], capture_output=True, text=True)
+    try:
+        return json.loads(out.stdout)[0]
+    except (json.JSONDecodeError, IndexError):
+        return {}
+
+
+def machine() -> dict:
+    """The GPU, the VM's memory and its processors, for the record."""
+    gpu = None
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+            check=True, capture_output=True, text=True,
+        ).stdout.splitlines()[0]
+        name, total = (part.strip() for part in out.rsplit(",", 1))
+        gpu = {"name": name, "vram_total_mib": int(total)}
+    except (OSError, subprocess.CalledProcessError, ValueError, IndexError):
+        pass
+    memory = None
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemTotal:"):
+                memory = int(line.split()[1]) // 1024
+    return {"gpu": gpu, "vm_memory_total_mib": memory, "processors": os.cpu_count()}
+
+
 def running() -> bool:
     out = subprocess.run(
         ["docker", "ps", "--quiet", "--filter", f"name=^{CONTAINER}$"], capture_output=True, text=True
@@ -95,6 +176,7 @@ def start(model_id: str, port: int, context: int | None, extra: list[str], timeo
         *entry["args"],
         *extra,
     ]
+    check_args(args, entry)
     key = secrets.token_urlsafe(32)
     vram_before = gpu_memory_used()
     started = time.monotonic()
@@ -102,6 +184,7 @@ def start(model_id: str, port: int, context: int | None, extra: list[str], timeo
         ["docker", "run", "--detach", "--name", CONTAINER, "--gpus", "all",
          "--publish", f"127.0.0.1:{port}:8080",
          "--volume", f"{weights_dir}:/models:ro",
+         "--volume", f"{templates_folder()}:{TEMPLATES_MOUNT}:ro",
          "--env", server["api_key_env"],
          server["image"], *args],
         check=True, env={**os.environ, server["api_key_env"]: key}, stdout=subprocess.DEVNULL,
@@ -125,28 +208,98 @@ def start(model_id: str, port: int, context: int | None, extra: list[str], timeo
     if without_key != 401 or with_key != 200:
         stop()
         raise SystemExit(f"key check failed: {without_key} without the key, {with_key} with it")
+    for path in ("/slots", "/metrics"):
+        without_key, with_key = status(port, path), status(port, path, key)
+        if without_key != 401 or with_key != 200:
+            stop()
+            raise SystemExit(f"key check failed on {path}: {without_key} without the key, {with_key} with it")
+
+    # Fail closed unless Docker published the port on the loopback only.
+    details = inspect()
+    bindings = (details.get("NetworkSettings", {}).get("Ports") or {}).get("8080/tcp") or []
+    published = [f"{b.get('HostIp')}:{b.get('HostPort')}" for b in bindings]
+    if not bindings or any(b.get("HostIp") != "127.0.0.1" for b in bindings):
+        stop()
+        raise SystemExit(f"the port is not published on 127.0.0.1 only: {published}")
 
     record = {
         "model_id": model_id,
         **{field: entry[field] for field in ("alias", "role", "repo", "revision", "file", "size", "sha256")},
         "image": server["image"],
+        "image_id": details.get("Image"),
         "build": server["build"],
         "commit": server["commit"],
         "context": context,
         "args": args,
+        "chat_template_sha256": entry.get("chat_template_sha256"),
+        "offline": True,
+        "key_checked": ["/v1/messages/count_tokens", "/slots", "/metrics"],
         "port": port,
+        "published": published,
+        "machine": machine(),
         "started_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "load_seconds": load_seconds,
         "vram_used_mib": {"before": vram_before, "loaded": gpu_memory_used()},
         "container_memory": container_memory(),
     }
+    serialized = json.dumps(record, indent=2)
+    if key in serialized:
+        stop()
+        raise SystemExit("the key appears in the server record; nothing was written")
     records = config.data_dir()
     records.mkdir(parents=True, exist_ok=True)
     key_file = records / "server.key"
     key_file.write_text(key)
     key_file.chmod(0o600)
-    (records / "server.json").write_text(json.dumps(record, indent=2))
+    (records / "server.json").write_text(serialized)
     return record
+
+
+def get(port: int, path: str, key: str) -> str:
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}", headers={"Authorization": f"Bearer {key}"}
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.read().decode()
+
+
+def snapshot(dest: Path) -> list[Path]:
+    """Copy the running server's state into dest, without the key and without prompt text."""
+    records = config.data_dir()
+    try:
+        server_text = (records / "server.json").read_text()
+        key = (records / "server.key").read_text().strip()
+    except OSError:
+        raise SystemExit("no server is running (server.json or server.key is missing)")
+    if not running():
+        raise SystemExit(f"no server is running (container {CONTAINER} is not up)")
+    port = json.loads(server_text)["port"]
+    try:
+        slots = json.loads(get(port, "/slots", key))
+        metrics = get(port, "/metrics", key)
+    except (urllib.error.URLError, ConnectionError, TimeoutError, json.JSONDecodeError) as error:
+        raise SystemExit(f"the server did not answer: {error}")
+    # /slots returns each slot's detokenized prompt and generated text; drop them.
+    for slot in slots if isinstance(slots, list) else []:
+        slot.pop("prompt", None)
+        slot.pop("generated", None)
+    logs = subprocess.run(
+        ["docker", "logs", "--timestamps", CONTAINER], capture_output=True, text=True
+    )
+    files = {
+        "server.json": server_text,
+        "slots.json": json.dumps(slots, indent=2),
+        "metrics.prom": metrics,
+        "server.log": logs.stdout + logs.stderr,
+    }
+    if any(key in text for text in files.values()):
+        raise SystemExit("the key appears in the server's state; nothing was written")
+    dest.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, text in files.items():
+        (dest / name).write_text(text)
+        written.append(dest / name)
+    return written
 
 
 def listing() -> None:
@@ -168,6 +321,8 @@ def main() -> None:
                        help="an extra server flag or value, repeatable, e.g. --arg=--n-cpu-moe --arg=30")
     begin.add_argument("--timeout", type=int, default=1200, help="seconds to wait for the model to load")
     commands.add_parser("stop", help="stop the server")
+    keep = commands.add_parser("record", help="copy the running server's state into a folder")
+    keep.add_argument("folder", type=Path)
     commands.add_parser("list", help="list the models and whether their weights are verified")
     args = parser.parse_args()
 
@@ -175,6 +330,9 @@ def main() -> None:
         print(json.dumps(start(args.model_id, args.port, args.context, args.extra, args.timeout), indent=2))
     elif args.command == "stop":
         stop()
+    elif args.command == "record":
+        for path in snapshot(args.folder):
+            print(path)
     else:
         listing()
 

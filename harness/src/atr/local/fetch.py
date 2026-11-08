@@ -6,7 +6,10 @@ With no model id, fetches every model of the stage. Files come from their
 Hugging Face repository at the pinned revision and go to $ATR_MODELS_DIR. A
 download resumes where it stopped. A file counts as present only once its size
 and SHA-256 match models.toml; a marker next to it records the digest, so later
-calls skip the hash. A file that fails the check is kept as <file>.bad.
+calls skip the hash. A file whose size or digest does not match is kept as
+<file>.bad, so the next call downloads afresh. The result line says "present,
+verified" for a file that was already complete and "downloaded and verified"
+only after a download.
 """
 
 import argparse
@@ -34,6 +37,7 @@ def check(model_id: str, entry: dict, path: Path) -> None:
     """Fail unless the file has the pinned size and digest."""
     size = path.stat().st_size
     if size != entry["size"]:
+        path.rename(path.with_name(entry["file"] + ".bad"))
         raise SystemExit(f"{model_id}: {path.name} has {size} bytes, expected {entry['size']}")
     print(f"{model_id}: hashing {path.name}", flush=True)
     digest = sha256(path)
@@ -45,8 +49,9 @@ def check(model_id: str, entry: dict, path: Path) -> None:
 def fetch(model_id: str, entry: dict, directory: Path, dry_run: bool = False) -> str:
     weights = directory / entry["file"]
     if config.verified(entry, directory):
-        return f"{model_id}: present and verified"
-    if weights.exists():
+        return f"{model_id}: present, verified"
+    downloaded = not weights.exists()
+    if not downloaded:
         if dry_run:
             return f"{model_id}: would verify {weights}"
         check(model_id, entry, weights)
@@ -73,7 +78,7 @@ def fetch(model_id: str, entry: dict, directory: Path, dry_run: bool = False) ->
         check(model_id, entry, partial)
         partial.rename(weights)
     config.marker(weights).write_text(f"{entry['sha256']}  {entry['file']}\n")
-    return f"{model_id}: downloaded and verified"
+    return f"{model_id}: {'downloaded and verified' if downloaded else 'present, verified'}"
 
 
 def main() -> None:

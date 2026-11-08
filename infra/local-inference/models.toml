@@ -1,6 +1,9 @@
 # Open-weight models and the inference server of the local models plan
 # (documentation/plans/local-models.md, D-057, D-058).
 #
+# The flags are final for Phase 2 (2026-11-04) and recorded in
+# documentation/research/local-route.md.
+#
 # Every weight file is pinned by repository revision and SHA-256, and the server
 # image by digest. From harness/, in WSL:
 #   uv run python -m atr.local.fetch            download and verify the main stage
@@ -8,7 +11,12 @@
 #   uv run python -m atr.local.bench            measure its speeds and power
 #   uv run python -m atr.local.serve stop
 # Weights live outside the repository, in $ATR_MODELS_DIR (default /mnt/d/atr/models).
-# The flags start from the model cards and are tuned in WP0.
+# The main-stage flags were measured in WP0 on 2026-11-04 on the operator's machine
+# (RTX 3060 Ti with 8 GB, a WSL 2 VM with 18 GB) and are recorded, with the
+# numbers, in documentation/research/local-route.md. Each main-stage model's
+# `baseline` names its benchmark file under $ATR_DATA_DIR/local-inference/bench/.
+# One slot (--parallel 1): the MVP runs one trial at a time (D-058), and a second
+# slot would split the context and the memory.
 
 [server]
 image = "ghcr.io/ggml-org/llama.cpp:server-cuda-b12063@sha256:d5ffba7d096ab0236c65dc147d797b4b7658a7e5425634593373635d661bccda"
@@ -25,9 +33,16 @@ args = [
     "--parallel", "1",
     "--metrics",
     "--offline",
+    # The web UI is not used; /slots is enabled explicitly because check L1 and
+    # `serve record` read it (it returns prompt text, which the copy drops).
+    "--no-webui",
+    "--slots",
 ]
 
-# L-MoE. Thinking, precise coding: the model card's sampling.
+# L-MoE. Thinking, precise coding: the model card's sampling. 34 layers of experts
+# stay on the CPU: with 36 the 128k context left 1.9 GB of VRAM free after loading,
+# with 32 the full 128k prompt peaked at 7972 of 8192 MiB, and 34 peaked at
+# 7565 MiB (about 0.6 GB free) and ran the 128k prompt at 342 tokens/s.
 [models."qwen3.6-35b-a3b-ud-q3_k_xl"]
 alias = "qwen3.6-35b-a3b"
 role = "L-MoE"
@@ -38,9 +53,14 @@ file = "Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf"
 size = 16845511648
 sha256 = "a832b9689925f1bd335bbe985cdfb06c36bf2cf268f4f8f6eceafa3ceb515617"
 context = 131072
+baseline = "qwen3.6-35b-a3b-ud-q3_k_xl-20261104T204406Z.json"
 args = [
     "--n-gpu-layers", "999",
-    "--n-cpu-moe", "36",
+    "--n-cpu-moe", "34",
+    # Prompt-cache RAM in MiB: the container peaked at 13.4 GiB of the VM's 17.6 GiB,
+    # leaving about 4 GiB for this cache, the task container and the other containers
+    # (the default of 8192 does not fit). Check L5 revisits it.
+    "--cache-ram", "2048",
     "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",
     "--chat-template-kwargs", '{"enable_thinking":true}',
 ]
@@ -59,6 +79,9 @@ context = 131072
 args = [
     "--n-gpu-layers", "999",
     "--n-cpu-moe", "34",
+    # Prompt-cache RAM in MiB: same budget as the main L-MoE entry (a smaller file
+    # only leaves more room). Check L5 revisits it.
+    "--cache-ram", "2048",
     "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",
     "--chat-template-kwargs", '{"enable_thinking":true}',
 ]
@@ -82,7 +105,9 @@ args = [
 ]
 
 # L-Small, entirely on the GPU. Unsloth and the card disagree on whether it
-# thinks by default, so thinking is set explicitly.
+# thinks by default, so thinking is set explicitly. At 128k the whole model, its
+# 8-bit cache and the context fit in 8 GB (peak 7983 MiB); generation slows to
+# 22 tokens/s at a full 128k prompt.
 [models."qwen3.5-9b-q4_k_m"]
 alias = "qwen3.5-9b"
 role = "L-Small"
@@ -93,8 +118,18 @@ file = "Qwen3.5-9B-Q4_K_M.gguf"
 size = 5680522464
 sha256 = "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
 context = 131072
+baseline = "qwen3.5-9b-q4_k_m-20261104T192021Z.json"
+# The embedded template raises on a system message that is not first, which Claude Code
+# sends (Phase 6, check L3). The override renders it in place; the start refuses a file
+# whose SHA-256 differs from this one. L-MoE's embedded template does not raise, so it has none.
+chat_template_sha256 = "a4080a6ecb3b1ed244e0a98d028f45c1634225363cb38998375b7d5402889921"
 args = [
     "--n-gpu-layers", "999",
+    "--chat-template-file", "/templates/qwen3.5-9b-q4_k_m.jinja",
+    # Prompt-cache RAM in MiB: the container peaked at about 5.6 GiB of the VM's
+    # 17.6 GiB, so 4 GiB fits beside the task container and the others. Check L5
+    # revisits it.
+    "--cache-ram", "4096",
     "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0", "--presence-penalty", "0",
     "--chat-template-kwargs", '{"enable_thinking":true}',
 ]

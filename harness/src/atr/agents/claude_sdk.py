@@ -10,8 +10,8 @@ import json
 import shlex
 import uuid
 from pathlib import Path
-from typing import override
-from urllib.parse import quote
+from typing import Literal, override
+from urllib.parse import quote, urlparse
 
 from pydantic import Field
 
@@ -61,6 +61,18 @@ class ClaudeAgentSdkOptions(InstalledAgentOptions):
     disallowed_tools: list[str] = Field(
         default_factory=list,
         description="Tools removed from the agent and its sub-agents, such as WebSearch (D-050).",
+    )
+    route: Literal["anthropic", "local"] = Field(
+        default="anthropic",
+        description="Where Claude Code sends its requests: Anthropic's API or the local server.",
+    )
+    local_base_url: str = Field(
+        default="http://host.docker.internal:8090",
+        description="The local server as the task container reaches it; its port must equal the server record's.",
+    )
+    local_timeout_ms: int = Field(
+        default=10_800_000,
+        description="Request and idle-stream timeouts on the local route: the run's three-hour limit.",
     )
 
 
@@ -127,7 +139,206 @@ class ClaudeAgentSdk(BaseInstalledAgent):
     def _model(self) -> str:
         if not self.model_name:
             raise ValueError("No model specified; pass one with -m")
-        return self.model_name.removeprefix("anthropic/")
+        return self.model_name.removeprefix("anthropic/").removeprefix("local/")
+
+    def _route_env(
+        self, model: str, server: dict | None, key: str | None
+    ) -> dict[str, str]:
+        """The variables that depend on the route; the rest are shared."""
+        if self.options.route != "local":
+            api_key = self._get_env("ANTHROPIC_API_KEY")
+            if api_key is None:
+                raise ValueError("ANTHROPIC_API_KEY must be set")
+            return {
+                "ANTHROPIC_API_KEY": api_key,
+                "ANTHROPIC_MODEL": model,
+                "CLAUDE_CODE_SUBAGENT_MODEL": model,
+                "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
+                # Background calls, such as WebFetch's summary, use the haiku alias.
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+            }
+        if server is None or key is None:
+            raise ValueError("the local route needs the server's record and key")
+        context = str(server["context"])
+        timeout = str(self.options.local_timeout_ms)
+        return {
+            # No ANTHROPIC_API_KEY: the task container holds nothing for Anthropic.
+            "ANTHROPIC_BASE_URL": self.options.local_base_url,
+            "ANTHROPIC_AUTH_TOKEN": key,
+            # Every alias names the model under test, so no request names a Claude model.
+            "ANTHROPIC_MODEL": model,
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+            "ANTHROPIC_DEFAULT_FABLE_MODEL": model,
+            "CLAUDE_CODE_SUBAGENT_MODEL": model,
+            "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
+            # An unknown model is assumed to have a 200K window.
+            "CLAUDE_CODE_MAX_CONTEXT_TOKENS": context,
+            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": context,
+            # A long prefill can take far longer than the defaults wait.
+            "API_TIMEOUT_MS": timeout,
+            "CLAUDE_STREAM_IDLE_TIMEOUT_MS": timeout,
+            # A changing header defeats the server's prompt cache.
+            "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+            "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+        }
+
+    def _local_server(self, model: str) -> tuple[dict, str]:
+        """The running server's record and key, checked against the job."""
+        from atr.local.config import data_dir
+
+        directory = data_dir()
+        record_file, key_file = directory / "server.json", directory / "server.key"
+        if not record_file.exists():
+            raise RuntimeError(f"no local server record at {record_file}; start the server first")
+        if not key_file.exists():
+            raise RuntimeError(f"no local server key at {key_file}; start the server first")
+        server = json.loads(record_file.read_text())
+        key = key_file.read_text().strip()
+        if server.get("alias") != model:
+            raise RuntimeError(
+                f"the job's model {model!r} is not the local server's alias {server.get('alias')!r}"
+            )
+        port = urlparse(self.options.local_base_url).port
+        if port != server.get("port"):
+            raise RuntimeError(
+                f"local_base_url port {port} differs from the server record's port {server.get('port')}"
+            )
+        return server, key
+
+    async def _check_local_server(
+        self, environment: BaseEnvironment, env: dict[str, str]
+    ) -> dict[str, dict]:
+        """Fail the trial before any model call if the container cannot use the local server.
+
+        The key travels in the exec's environment, never in a command string. Returns the
+        network record for route.json (check L9): whether Anthropic's API and the package
+        index answer from the container. Those two probes never fail the run.
+        """
+        url = env["ANTHROPIC_BASE_URL"]
+        model = env["ANTHROPIC_MODEL"]
+        absent = await environment.exec(command='[ -z "${ANTHROPIC_API_KEY:-}" ]', env=env)
+        if absent.return_code != 0:
+            raise RuntimeError("the task container has ANTHROPIC_API_KEY set")
+
+        payload = json.dumps({"model": model, "messages": [{"role": "user", "content": "ping"}]})
+        result = await environment.exec(
+            command=(
+                "curl -sS -m 10 -o /dev/null -w '%{http_code}' -X POST "
+                '"$ANTHROPIC_BASE_URL/v1/messages/count_tokens" '
+                '-H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN" '
+                f"-H 'Content-Type: application/json' -d {shlex.quote(payload)}"
+            ),
+            env=env,
+        )
+        lines = (result.stdout or "").strip().splitlines() or [""]
+        status, detail = lines[-1], " ".join(lines[:-1] + [(result.stderr or "").strip()])
+        if result.return_code != 0 or not status.isdigit():
+            raise RuntimeError(
+                f"the local server at {url} did not answer (HTTP none): {detail.strip()[-500:]}"
+            )
+        if status in ("401", "403"):
+            raise RuntimeError(f"the local server at {url} rejected the run's key (HTTP {status})")
+        if status != "200":
+            raise RuntimeError(f"the local server at {url} answered HTTP {status}")
+
+        listing = await environment.exec(
+            command='curl -sS -m 10 "$ANTHROPIC_BASE_URL/v1/models" -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN"',
+            env=env,
+        )
+        try:
+            body = json.loads(listing.stdout or "{}")
+            ids = [m.get("id") for m in body.get("data", [])]
+        except (json.JSONDecodeError, AttributeError):
+            ids = []
+        if model not in ids:
+            raise RuntimeError(
+                f"the local server serves {', '.join(map(str, ids)) or 'nothing'}, not {model}"
+            )
+
+        # Evidence for check L9: a bare request with no key, header or body, run without the
+        # route's environment. A blocked host fails the connection; that is the expected answer.
+        network: dict[str, dict] = {}
+        for host, url in (
+            ("api.anthropic.com", "https://api.anthropic.com/"),
+            ("pypi.org", "https://pypi.org/simple/"),
+        ):
+            probe = await environment.exec(
+                command=f"curl -sS -m 10 -o /dev/null -w '%{{http_code}}' {url}"
+            )
+            code = ((probe.stdout or "").strip().splitlines() or [""])[-1]
+            if probe.return_code == 0 and code.isdigit() and code != "000":
+                network[host] = {"http_status": int(code), "curl_exit_code": 0}
+            else:
+                network[host] = {"http_status": None, "curl_exit_code": probe.return_code}
+        return network
+
+    def _record_route(
+        self,
+        model: str,
+        server: dict | None,
+        env: dict[str, str],
+        network: dict[str, dict] | None = None,
+    ) -> None:
+        """Write route.json: where the run's requests went and with which settings."""
+        if self.options.route != "local" or server is None:
+            record: dict = {"provider": "anthropic", "model": model}
+            (self.logs_dir / "route.json").write_text(json.dumps(record, indent=2))
+            return
+        args = [str(a) for a in server.get("args", [])]
+
+        def option(name: str) -> float | int | None:
+            if name in args and args.index(name) + 1 < len(args):
+                try:
+                    value = float(args[args.index(name) + 1])
+                except ValueError:
+                    return None
+                return int(value) if value.is_integer() else value
+            return None
+
+        thinking = None
+        if "--chat-template-kwargs" in args and args.index("--chat-template-kwargs") + 1 < len(args):
+            try:
+                thinking = json.loads(args[args.index("--chat-template-kwargs") + 1]).get(
+                    "enable_thinking"
+                )
+            except (json.JSONDecodeError, AttributeError):
+                thinking = None
+        stem = Path(server.get("file", "")).name.removesuffix(".gguf")
+        quantization = stem.rsplit("-", 1)[-1].lower() if "-" in stem else None
+        record = {
+            "provider": "local",
+            "model": model,
+            "base_url": self.options.local_base_url,
+            **{
+                name: server.get(name)
+                for name in (
+                    "model_id", "repo", "revision", "file", "size", "sha256", "image",
+                    "image_id", "build", "commit", "context", "args", "published",
+                    "machine", "started_at",
+                )
+            },
+            "quantization": quantization,
+            "sampling": {
+                name: option(f"--{flag}")
+                for name, flag in (
+                    ("temp", "temp"), ("top_p", "top-p"), ("top_k", "top-k"),
+                    ("min_p", "min-p"), ("presence_penalty", "presence-penalty"),
+                )
+            },
+            "thinking": thinking,
+            "network": network,
+            "settings": {
+                name: ("<set>" if name == "ANTHROPIC_AUTH_TOKEN" else value)
+                for name, value in self._route_env(model, server, "x").items()
+            },
+        }
+        serialized = json.dumps(record, indent=2)
+        key = env.get("ANTHROPIC_AUTH_TOKEN")
+        if key and key in serialized:
+            raise RuntimeError("the server key appears in route.json; nothing was written")
+        (self.logs_dir / "route.json").write_text(serialized)
 
     def _trial_and_job(self) -> tuple[str, str]:
         # Harbor writes agent logs to <jobs dir>/<job>/<trial>/agent.
@@ -226,18 +437,15 @@ class ClaudeAgentSdk(BaseInstalledAgent):
             environment, instruction_file, INSTRUCTION_PATH
         )
 
-        api_key = self._get_env("ANTHROPIC_API_KEY")
-        if api_key is None:
-            raise ValueError("ANTHROPIC_API_KEY must be set")
         model = self._model()
+        server: dict | None = None
+        key: str | None = None
+        if self.options.route == "local":
+            server, key = self._local_server(model)
+        route_env = self._route_env(model, server, key)
         await self._record_workflow(environment)
         env = {
-            "ANTHROPIC_API_KEY": api_key,
-            "ANTHROPIC_MODEL": model,
-            "CLAUDE_CODE_SUBAGENT_MODEL": model,
-            "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
-            # Background calls, such as WebFetch's summary, use the haiku alias.
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+            **route_env,
             "DISABLE_AUTOUPDATER": "1",
             "DISABLE_ERROR_REPORTING": "1",
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -250,6 +458,10 @@ class ClaudeAgentSdk(BaseInstalledAgent):
         if self.options.otel_endpoint:
             await self._check_collector(environment, self.options.otel_endpoint)
             env |= self._telemetry_env(self.options.otel_endpoint)
+        network = None
+        if self.options.route == "local":
+            network = await self._check_local_server(environment, env)
+        self._record_route(model, server, env, network)
 
         args = [
             f"{VENV_DIR}/bin/python",

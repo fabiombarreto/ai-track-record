@@ -31,6 +31,7 @@ AI Track Record has no HTTP API. Its interfaces are command-line modules, a Harb
 | `atr.ops.cleanup` | A job folder | Removes leftover Compose containers and networks |
 | `atr.local.fetch` | `models.toml` | Verified weights and markers in `ATR_MODELS_DIR` |
 | `atr.local.serve` | `models.toml`, verified weights | The `atr-llm` container, `server.json`, `server.key` |
+| `atr.local.launch` | A local job config, `models.toml` | Per-trial `server/` files, `launch.json` in the job folder (model id, image, weights' SHA-256, Harbor exit code, trials recorded, wall time) |
 | `atr.local.bench` | `server.json`, `server.key` | `local-inference/bench/<model id>-<time>.json` |
 
 ## Trial folder
@@ -40,6 +41,9 @@ AI Track Record has no HTTP API. Its interfaces are command-line modules, a Harb
 | `result.json` | Harbor | Exception info, timings |
 | `agent/result.json`, `agent/messages.jsonl` | Runner | SDK result with `atr_wall_ms`, `atr_num_turns`; every SDK message |
 | `agent/workflow.json` | Agent | Plugin version and digest |
+| `server/server.json`, `server/slots.json`, `server/metrics.prom`, `server/server.log` | `atr.local.launch` | The local server's record, slots (prompt and generated text dropped), metrics and log |
+| `server/power.csv`, `server/power.json` | `atr.local.launch` | GPU power, VRAM and use per second; summary (mean and peak power, Wh, peak VRAM, wall-clock span, trials sharing the samples) |
+| `agent/route.json` | Agent | Provider and model; on the local route also the server's identity, sampling, context and the route's variables (token shown as `<set>`) |
 | `verifier/reward.json`, `verifier/changes.patch` | `grade.py` | Rewards; the graded diff |
 | `review/review.json` | `atr.review.run` | Findings and review cost |
 | `checks/skipped_steps.json` | `atr.checks.skipped_steps` | Protocol steps and flags |

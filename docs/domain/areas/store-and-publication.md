@@ -14,8 +14,11 @@ Trials, model usage, events, metric points, review findings, protocol steps, the
 - A trial regraded with `harbor job regrade` keeps one row: agent data from the original trial, grades and review from the latest regrade.
 - Events are ordered by `event.sequence`, not by time, because the WSL clock can jump during a run.
 - Cost is computed from tokens and a dated price table, and every published cost states its source (D-022). The reconciliation compares Claude Code's events, its metrics and the SDK's usage per trial and model.
+- A local run is stored with route `local`, `cost_usd` zero and `cost_source` `local`; the SDK's own total is kept apart as `sdk_cost_estimate_usd` (an estimate for a model it cannot price, not money spent). Route, provider, quantization and server build come from `agent/route.json`, energy and mean power (GPU only) from `server/power.json`, and the server's prompt, cached prompt and output token counts from `server/metrics.prom`. An API run keeps the SDK's cost with source `sdk`.
+- A run that failed before an SDK result names its cause in `native_outcome` (the exception type and the agent's own first message line, or the last assistant message's error); `outcome` stays `error`. This applies only to local-route trials.
+- Reconciliation of a local run compares tokens only, across the SDK, events and metrics, plus the server's prompt total (processed plus reused) against the SDK's total input and the server's output against the SDK's output. No cost is compared. The view gains `route`, `server_prompt`, `server_output` and `sdk_total_input`.
 - Size metrics count product files only; relay's `PRPs/` files are left out, and `docs/` changes are counted separately.
-- Export is deny by default: each run, task and target is copied through an allowlist of fields for its visibility class (allowlist version 2). For a private target only the codename, a generic description, the task's category and difficulty, per-run metrics, change sizes and review findings as counts by category leave the store.
+- Export is deny by default: each run, task and target is copied through an allowlist of fields for its visibility class (allowlist version 3). For a private target only the codename, a generic description, the task's category and difficulty, per-run metrics, change sizes and review findings as counts by category leave the store. Version 3 adds `route`, `provider`, `quantization`, `cost_source`, `energy_wh` and a `label` (`workflow portability, quantized local model` for local runs, null otherwise); a local run's model is published as its alias, without the `local/` prefix, which the leak check would read as a path.
 - Before anything is written, a leak check scans the whole export for private terms (from `leak-terms.txt`, kept outside the repository and required when a private target is exported), absolute and relative paths, source file names, secrets, e-mail addresses and, in private runs, any text longer than 64 characters. Any finding blocks the export.
 - Each export is recorded in `publications.jsonl` with its date, jobs, runs, allowlist version and file digests.
 - Private targets appear publicly under a codename only (D-013); publication waits for the operator's command.
@@ -30,4 +33,4 @@ Reads runs, grading, review and telemetry; feeds the dashboard (M4) and the budg
 
 ## Open Questions
 
-- Local runs have no API cost; how their machine time and energy enter the store and the export is planned (local models plan, section 7) but not built.
+- Matching on a completed local run is untested: no local run has completed a request yet; it waits for check L7 (Phase 6).

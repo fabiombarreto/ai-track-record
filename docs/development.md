@@ -25,7 +25,7 @@ All modules run from `harness/` with `uv run python -m <module>`, or with the ha
 | Export a publication | `python -m atr.store.export <out dir> <job>...` |
 | Check spend | `python -m atr.ops.budget [--next <usd>]` |
 | Clean a killed job | `python -m atr.ops.cleanup <job dir>` |
-| Local models | `python -m atr.local.fetch`, `python -m atr.local.serve start <id>`, `python -m atr.local.bench`, `python -m atr.local.serve stop` |
+| Local models | `python -m atr.local.fetch`, `python -m atr.local.serve start <id>`, `python -m atr.local.bench`, `python -m atr.local.probe` (check L1), `python -m atr.local.serve record <folder>`, `python -m atr.local.serve stop`, `python -m atr.local.launch <job config> [--model-id] [--port] [--dry-run]` (one local Harbor job with its server and power records), `python -m atr.tasks.build <manifest> --route local` (builds `<task id>-local`) |
 
 ## Adding a feature
 
