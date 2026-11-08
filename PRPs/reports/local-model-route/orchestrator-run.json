@@ -427,5 +427,10 @@
       "ended_at": "2026-11-05T02:42:00Z",
       "outcome": "ALL_PHASES_COMPLETE"
     }
-  ]
+  ],
+  "pr_url": "https://github.com/fabiombarreto/ai-track-record/pull/1",
+  "merged_at": "2026-11-08T16:18:33Z",
+  "approve_outcome": "COMPLETE",
+  "docs_outcome": "APPROVED",
+  "approve_notes": "post-merge docs pass: manifest APPROVED with 0 docs/ files edited (the implement-time sync already covered the merged diff), so there was no docs knowledge-base commit; cleanup: worktree removed, local and remote feature branches deleted, worktrees pruned"
 }
