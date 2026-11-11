@@ -73,6 +73,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 | [D-057](#d-057) | Target A on open-weight models running on the operator's machine | Accepted |
 | [D-058](#d-058) | Local models experiment, outside the frozen MVP | Accepted |
 | [D-059](#d-059) | The MVP is published on its first repetition; the rest of its runs follow | Accepted |
+| [D-060](#d-060) | The dashboard is built with Observable Framework | Accepted |
 
 ## Decisions
 
@@ -666,3 +667,16 @@ Entries are listed in ID order and keep their ID when their status changes. To c
   - SC-1 is met with the first repetition's 12 runs. SC-4 is checked when repetitions 2 and 3 exist. The [roadmap](../product/06-scope-and-roadmap.md#4-schedule-to-the-mvp) records the re-forecast.
   - The ceiling ([D-028](#d-028)) does not change. MVP spend stays at US$ 163.81 until credits return.
   - The local models experiment ([D-058](#d-058)) needs no API credits for its runs. Its independent reviews do, so they wait like the MVP's runs, and its WP4 records that.
+
+### D-060
+
+**The dashboard is built with Observable Framework**
+
+- **Status:** Accepted, 2026-11-11
+- **Decision:** The static dashboard ([D-025](#d-025)) is an Observable Framework project in this repository, pinned at version 1.13.4 with its lockfile, installed with `npm ci` and always built with its telemetry disabled. It reads only a publication export. Its layout takes the patterns of LangSmith and Langfuse as a visual reference ([D-045](#d-045)). The work is specified in the [MVP dashboard PRD](../../PRPs/prds/mvp-dashboard.prd.md).
+- **Why:** The owner chose it on 2026-11-11. It is made for static data dashboards: pages written in Markdown, Python data loaders that run at build time, charts and tables built in, and a static output that any host can serve.
+- **Considerations:**
+  - The alternatives weighed were a Python generator in the harness, recommended first because it keeps one toolchain; a static React application built from the same components as Langfuse, closest to its look; and Evidence.dev. Self-hosting LangSmith or Langfuse is ruled out by [D-045](#d-045) and [D-025](#d-025).
+  - Framework is in maintenance mode. Version 1.13.3 came out in April 2025, and 1.13.4, which only upgrades dependencies, in March 2026. Observable's hosting service was deprecated in April 2025, so the site goes to a static host ([D-034](#d-034)).
+  - It brings Node and about 45 direct npm dependencies into the project, a supply-chain exposure ([R11](../product/06-scope-and-roadmap.md#9-risks-and-mitigations)) kept down by the exact version, the lockfile and `npm ci`. The built site does not need Framework to run, and the export does not depend on it, so the generator can be replaced without changing the data.
+- **Consequences:** The harness stays Python ([D-047](#d-047)). The site is a separate component with its own Node toolchain, built in WSL with a pinned Node LTS version. [D-034](#d-034) stays open and is needed before the first deploy.
