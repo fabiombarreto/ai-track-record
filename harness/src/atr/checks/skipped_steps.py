@@ -17,7 +17,9 @@ implementation and the phase snapshot at the end, and names the outcomes each
 stage may log. A step counts as done when relay's orchestrator-run.json logs
 it with an accepted outcome or when the step's own record exists, such as the
 docs sync manifest. A phase that halted is checked only up to the halt, since a
-halt is an outcome, not a skip. "Mentioned" is a keyword match on the summary,
+halt is an outcome, not a skip. The run's outcome is the one in
+orchestrator-run.json or, when relay 0.49.0 leaves that empty or writes no run
+record, the one in orchestrator-halt.json. "Mentioned" is a keyword match on the summary,
 which is why the result is a flag for review and not a verdict.
 
 The protocol follows the plugin version the run recorded (agent/workflow.json)
@@ -127,15 +129,24 @@ def report_dirs(app: Path) -> list[Path]:
 
 def orchestrator_log(dirs: list[Path]) -> tuple[list[dict], str | None, list | None]:
     """The fullest orchestrator log among the report folders, its outcome, and
-    relay's own deviations (None when it recorded none, as before 0.49.0)."""
+    relay's own deviations (None when it recorded none, as before 0.49.0).
+
+    Relay 0.49.0 records some halts only in orchestrator-halt.json, such as a
+    dispute the code reviewer upheld or a plan review that got stuck: it leaves
+    the outcome in orchestrator-run.json empty, or halts before writing that
+    file at all. The halt file's outcome and log fill what the run record lacks.
+    """
     best: tuple[list[dict], str | None, list | None] = ([], None, None)
     for folder in dirs:
-        record = folder / "orchestrator-run.json"
-        if record.exists():
-            data = json.loads(record.read_text())
-            log = data.get("phases") or data.get("orchestrator_run_log") or []
-            if len(log) >= len(best[0]):
-                best = (log, data.get("outcome"), data.get("deviations"))
+        run, halt = folder / "orchestrator-run.json", folder / "orchestrator-halt.json"
+        if not run.exists() and not halt.exists():
+            continue
+        data = json.loads(run.read_text()) if run.exists() else {}
+        stop = json.loads(halt.read_text()) if halt.exists() else {}
+        log = (data.get("phases") or data.get("orchestrator_run_log")
+               or stop.get("orchestrator_run_log") or [])
+        if len(log) >= len(best[0]):
+            best = (log, data.get("outcome") or stop.get("outcome"), data.get("deviations"))
     return best
 
 

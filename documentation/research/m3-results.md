@@ -95,15 +95,26 @@ Twelve runs of relay 0.49.0 and vanilla on Target A, one per configuration and t
 
 | Configuration | Task 01 | Task 02 | Task 03 |
 |---|---|---|---|
-| Reference: relay, Sonnet | Met (1.0) · 11.41 · 30 min | Met (1.0) · 8.92 · 27 min | Not met (0.1) · 9.66 · 35 min |
-| Smaller model: relay, Haiku | Met (1.0) · 4.05 · 60 min | Not met (0.0) · 0.72 · 9 min | Not met (0.1) · 3.52 · 48 min |
-| Larger model: relay, Opus | Not met (0.9) · 21.68 · 48 min | Halted, not met (0.0) · 13.35 · 35 min | Not met (0.1) · 21.06 · 44 min |
+| Reference: relay, Sonnet | Met (1.0) · 11.41 · 30 min | Met (1.0) · 8.92 · 27 min | Halted, not met (0.1) · 9.66 · 35 min |
+| Smaller model: relay, Haiku | Met (1.0) · 4.05 · 60 min | Halted, not met (0.0) · 0.72 · 9 min | Halted, not met (0.1) · 3.52 · 48 min |
+| Larger model: relay, Opus | Halted, not met (0.9) · 21.68 · 48 min | Halted, not met (0.0) · 13.35 · 35 min | Halted, not met (0.1) · 21.06 · 44 min |
 | Earlier release: relay 0.47.0, Sonnet | not run | not run | not run |
 | Baseline: vanilla, Sonnet | Met (1.0) · 0.45 · 2 min | Met (1.0) · 0.55 · 3 min | Met (1.0) · 0.57 · 4 min |
 
 - Every run kept the existing tests passing, and none added a static analysis finding. All 12 were reviewed, at US$ 2.56 in total. The runs themselves cost US$ 95.93.
-- The Opus run on task 02 halted with `FAILED_IMPLEMENT_FAILED_AFTER_N_RETRIES`. The other relay runs finished their protocol, and the protocol check found no skipped step.
-- Each of the three relay runs on task 03 satisfied one criterion, although the 0.49.0 pilot on Sonnet satisfied all of them ([Pilots](#pilots)). Before any comparison, the analysis checks whether that comes from the runs or from the grading.
+- Six of the nine relay runs halted, each with relay's own code, and each is graded with the code it left. The three relay runs that met the oracle are the three that finished their protocol. The protocol check found no skipped step in the phases each run reached.
+
+  | Run | Phase | Halt |
+  |---|---|---|
+  | Haiku, task 02 | 1 | `FAILED_PLAN_REVIEW_STUCK`: the plan review failed the same item twice |
+  | Haiku, task 03 | 3 | `HALT_PHASE_3_PLAN_REVIEW_STRUCTURAL`: the plan was never approved |
+  | Opus, task 01 | 2 | `FAILED_IMPLEMENT_DISPUTE_UPHELD_TEST_WRONG`: the code reviewer upheld a dispute against a test |
+  | Opus, task 02 | 1 | `FAILED_IMPLEMENT_FAILED_AFTER_N_RETRIES` |
+  | Opus, task 03 | 2 | `FAILED_IMPLEMENT_DISPUTE_UPHELD_PRD_AMBIGUOUS`: the code reviewer upheld a dispute that the specification contradicts itself |
+  | Sonnet, task 03 | 2 | The same as Opus on task 03, on the same point |
+
+- Five of these halts were first stored as completed runs. Relay 0.49.0 writes some halts only to `orchestrator-halt.json` and leaves the outcome in `orchestrator-run.json` empty, or writes no run record at all, and the protocol check read only the run record. Since 2026-11-11 the check reads both, and the store was rebuilt. No grade changed, only the outcomes.
+- On task 03, the three relay runs halted before the phase that the failing hidden tests cover, so each satisfied one criterion. The 0.49.0 pilot on Sonnet finished all three phases ([Pilots](#pilots)). Sonnet and Opus stopped on the same point, where two rules of the specification give different error responses to a request from another tenant. Vanilla and the pilot followed the reading the hidden tests expect, without raising it. Whether the specification really contradicts itself is for the owner to judge. The tasks stay frozen ([D-053](../decisions/decision-log.md#d-053)), so this is a finding for the analysis, not a change to the task.
 - The results are preliminary: one run per cell ([D-059](../decisions/decision-log.md#d-059)).
 
 ## Telemetry metrics short of the events
