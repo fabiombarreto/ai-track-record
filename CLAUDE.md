@@ -22,6 +22,7 @@ Run in WSL: `wsl.exe -d Ubuntu --exec bash -lc '<command>'` (never start the str
 - `uv run python -m atr.ops.budget` — spend against the US$ 800 ceiling
 - `docker compose -f infra/otel-collector/docker-compose.yaml up -d` — Collector
 - From `~/atr/tools/harbor`: `HARBOR_TELEMETRY=off PYTHONPATH=<repo>/harness/src uv run harbor run -c <job>.json -y`
+- `cd dashboard && npm ci && ATR_EXPORT_DIR=<export dir> npm run build` — the site, in WSL with Node 24.22.2
 - Full list: docs/development.md
 
 ## Key patterns

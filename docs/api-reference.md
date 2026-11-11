@@ -26,7 +26,8 @@ AI Track Record has no HTTP API. Its interfaces are command-line modules, a Harb
 | `atr.review.run` | A graded trial and its built task | `<trial>/review/review.json` and the transcript |
 | `atr.review.confirm` | Reviewed trials; graded sheets | Blind sheets and `key.json`; a summary |
 | `atr.store.load` | `~/atr/data`: jobs, tasks, confirmations, telemetry | `atr.duckdb` |
-| `atr.store.export` | `atr.duckdb`, `leak-terms.txt` | An export folder and a line in `publications.jsonl` |
+| `atr.store.export` | `atr.duckdb`, `leak-terms.txt`, optionally an experiment file (`--experiment`, `experiments/mvp.toml`) | An export folder, with `experiment.json` when an experiment file is given, and a line in `publications.jsonl` |
+| `atr.store.check_site` | A built `dashboard/dist/`, `<data dir>/leak-terms.txt` (or `--leak-terms`), the data files the pages read | Nothing; findings print as `<file>: <rule> <match>`; exit 0 clean, 2 findings, 1 precondition not met |
 | `atr.ops.budget` | Trial results and reviews | A spend report; exit 1 with `--next` past the ceiling |
 | `atr.ops.cleanup` | A job folder | Removes leftover Compose containers and networks |
 | `atr.local.fetch` | `models.toml` | Verified weights and markers in `ATR_MODELS_DIR` |

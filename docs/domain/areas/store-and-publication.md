@@ -2,7 +2,7 @@
 
 ## Primary responsibility
 
-Load every run into a local analytical store that can be rebuilt from files, reconcile tokens and cost across sources, and publish only what each target's visibility allows. Code: `atr.store.load`, `atr.store.export`.
+Load every run into a local analytical store that can be rebuilt from files, reconcile tokens and cost across sources, and publish only what each target's visibility allows. Code: `atr.store.load`, `atr.store.export`, `atr.store.check_site`.
 
 ## Entities
 
@@ -20,6 +20,7 @@ Trials, model usage, events, metric points, review findings, protocol steps, the
 - Size metrics count product files only; relay's `PRPs/` files are left out, and `docs/` changes are counted separately.
 - Export is deny by default: each run, task and target is copied through an allowlist of fields for its visibility class (allowlist version 3). For a private target only the codename, a generic description, the task's category and difficulty, per-run metrics, change sizes and review findings as counts by category leave the store. Version 3 adds `route`, `provider`, `quantization`, `cost_source`, `energy_wh` and a `label` (`workflow portability, quantized local model` for local runs, null otherwise); a local run's model is published as its alias, without the `local/` prefix, which the leak check would read as a path.
 - Before anything is written, a leak check scans the whole export for private terms (from `leak-terms.txt`, kept outside the repository and required when a private target is exported), absolute and relative paths, source file names, secrets, e-mail addresses and, in private runs, any text longer than 64 characters. Any finding blocks the export.
+- Before any deploy, `python -m atr.store.check_site <dist dir>` checks the built site. It scans every file of `dist/` for private terms, secrets, e-mail addresses and absolute paths (only the exact package specifiers in `VENDORED_ALLOWED` are tolerated), runs the exporter's own leak check over the data files, checks the visible text of each page for file names and relative paths, and requires a page for every run, evidence markers, resolving links and existing methodology anchors. It fails closed (exit 1) on a missing `dist/`, data file or terms file, or a private target with no terms; findings exit 2. It reuses the exporter's `read_leak_terms` and `text_findings`.
 - Each export is recorded in `publications.jsonl` with its date, jobs, runs, allowlist version and file digests.
 - Private targets appear publicly under a codename only (D-013); publication waits for the operator's command.
 
@@ -29,7 +30,7 @@ Reads runs, grading, review and telemetry; feeds the dashboard (M4) and the budg
 
 ## Main flow
 
-`python -m atr.store.load` → `atr.duckdb` → analysis queries → `python -m atr.store.export <out dir> <job>...` → leak check → files and a publication record.
+`python -m atr.store.load` → `atr.duckdb` → analysis queries → `python -m atr.store.export <out dir> <job>... [--experiment <file>]` → leak check → files and a publication record. With `--experiment`, the public experiment file is validated and written as `experiment.json`; the export fails if a run's `config` is not declared in it.
 
 ## Open Questions
 

@@ -21,3 +21,8 @@ desktop.ini
 
 # relay — per-feature worktrees (ephemeral)
 .worktrees/
+
+# Dashboard build output and dependencies (the site is rebuilt from an export, D-033)
+dashboard/node_modules/
+dashboard/dist/
+dashboard/src/.observablehq/cache/
