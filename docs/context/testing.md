@@ -48,8 +48,26 @@ nor this explicit warning is incomplete.
 
 ## Detected test suites
 
-No automated test suites were detected at `*init` time. The guardrail
-above still applies the moment any suite is added: record its run command
-and prerequisites here, then keep it green on every subsequent change. If
-you believe this project should have tests (especially e2e), say so to
-the user rather than proceeding silently.
+| Suite | Covers | Tier |
+|-------|--------|------|
+| pytest, `harness/tests/` | The harness package `atr` | unit |
+
+Run it from the repository root on Windows (Git Bash):
+
+```bash
+make test-pytest                        # the whole suite
+make test-pytest JUNIT=<file>           # also write a JUnit XML report
+make test-pytest PYTEST_ARGS="-k leak"  # extra pytest arguments
+```
+
+Or inside WSL: `cd harness && uv run pytest`.
+
+Prerequisites: WSL 2 with Ubuntu and uv. The target runs
+`uv run --frozen pytest` in WSL, so pytest comes pinned from the harness's
+`dev` dependency group (`harness/pyproject.toml`, `harness/uv.lock`); the
+first run in a new worktree creates its `harness/.venv`. Tests use no
+network, no Docker and nothing under `~/atr`.
+
+There is no integration or e2e suite yet. Harness changes that need Docker,
+Harbor or a model are still verified with check runs on the synthetic task
+and recorded in the research reports.

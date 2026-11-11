@@ -17,6 +17,7 @@ The product, its decisions and its plans are documented in `documentation/`, whi
 | Store | DuckDB, rebuilt from the run folders on every load | duckdb 2.0.0 | D-033 |
 | Local inference (in preparation) | llama.cpp's CUDA server image, open-weight GGUF models | build b12063 | D-031, D-057, D-058 |
 | Synthetic target | Django and Django Ninja on PostgreSQL, graded with pytest | — | D-046 |
+| Dashboard | Observable Framework, a static site built on Node in WSL, with Python data loaders | Framework 1.13.4, Node 24.22.2 | D-025, D-060 |
 
 ## Architectural pattern
 
@@ -45,9 +46,10 @@ A set of small command-line modules around Harbor, with run folders as the syste
 | `harness/src/atr/tasks/` | Task builder (`build.py`) and the grader copied into every task (`grade.py`) |
 | `harness/src/atr/checks/` | Protocol check of skipped workflow steps (`skipped_steps.py`) |
 | `harness/src/atr/review/` | Independent review (`run.py`, `reviewer.py`) and blind human confirmation (`confirm.py`) |
-| `harness/src/atr/store/` | Loader into DuckDB (`load.py`) and the allowlist exporter (`export.py`) |
+| `harness/src/atr/store/` | Loader into DuckDB (`load.py`), the allowlist exporter (`export.py`) and the site check over a built `dist/` (`check_site.py`) |
 | `harness/src/atr/ops/` | Spend against the ceiling (`budget.py`) and cleanup of killed jobs (`cleanup.py`) |
 | `harness/src/atr/local/` | Local inference: pinned models, download, server start and stop, speed benchmark |
+| `dashboard/` | The static site: Observable Framework config and pages (`src/`), Python loaders that pass the publication export through (`loaders/`, `src/data/`), and the build script (`scripts/build.mjs`); the export directory comes from `ATR_EXPORT_DIR`, with no default and no sample data. The Runs and Tasks pages and one page per run (`src/run/[run].md`, paths from `dynamicPaths` in `observablehq.config.js`, which reads `runs.json` from `ATR_EXPORT_DIR`) share the pure rules in `src/components/runs.js`. The home, Grid and Methodology pages share `src/components/answers.js` (success rate, Wilson interval only when every task cell of a group has 3+ runs, cost per successful task, Pareto frontier, question cards, grid cells with "not run"; a run of an undeclared configuration fails the build); Methodology carries one anchor per metric. Its `dist/` is checked by `atr.store.check_site` before any deploy |
 | `infra/otel-collector/` | Collector configuration and Compose file |
 | `infra/local-inference/` | Pinned server image and model files (`models.toml`) |
 | `targets/synthetic-events/` | The public synthetic target's task manifest and Docker and pytest templates |

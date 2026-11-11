@@ -1,0 +1,94 @@
+# Public description of the MVP experiment. Read by the exporter and published as experiment.json.
+# Answer sentences are written here after the analysis; until then no question carries one.
+
+preliminary = true
+planned_repetitions = 3
+
+[[configurations]]
+label = "relay049-sonnet"
+name = "Reference"
+workflow = "relay"
+workflow_version = "0.49.0"
+model = "claude-sonnet-5-5"
+question = "Q1"
+
+[[configurations]]
+label = "relay049-haiku"
+name = "Smaller model"
+workflow = "relay"
+workflow_version = "0.49.0"
+model = "claude-haiku-5-5"
+question = "Q3"
+
+[[configurations]]
+label = "relay049-opus"
+name = "Larger model"
+workflow = "relay"
+workflow_version = "0.49.0"
+model = "claude-opus-5-5"
+question = "Q3"
+
+[[configurations]]
+label = "vanilla-sonnet"
+name = "Baseline"
+workflow = "vanilla"
+model = "claude-sonnet-5-5"
+question = "Q1"
+
+[[configurations]]
+label = "relay047-sonnet"
+name = "Earlier release"
+workflow = "relay"
+workflow_version = "0.47.0"
+model = "claude-sonnet-5-5"
+question = "Q2"
+
+[[questions]]
+id = "Q1"
+text = "Is a workflow worth it?"
+status = "not_yet_answered"
+reason = "The analysis is pending."
+
+[[questions]]
+id = "Q2"
+text = "Did a new workflow version help?"
+status = "not_yet_answered"
+reason = "The analysis is pending, and the earlier-release runs do not exist yet."
+
+[[questions]]
+id = "Q3"
+text = "How much does the model tier matter?"
+status = "not_yet_answered"
+reason = "The analysis is pending."
+
+[[questions]]
+id = "Q4"
+text = "How often do agents claim false success?"
+status = "not_yet_answered"
+reason = "The analysis is pending."
+
+[[questions]]
+id = "Q5"
+text = "What does a working feature cost?"
+status = "not_yet_answered"
+reason = "The analysis is pending."
+
+[[hypotheses]]
+id = "H1"
+text = "Relay 0.49.0 on Haiku no longer halts in its test-first track, where 0.47.0 halted on both M2 pilots, and meets the oracle on most of its runs"
+
+[[hypotheses]]
+id = "H2"
+text = "Relay on Sonnet costs at least ten times as much as vanilla on Sonnet for the same oracle result"
+
+[[hypotheses]]
+id = "H3"
+text = "Relay 0.49.0 on Sonnet records fewer deviations from its protocol than 0.47.0, at a similar or higher cost"
+
+[[hypotheses]]
+id = "H4"
+text = "Opus does not improve on Sonnet's oracle result, and costs more"
+
+[[hypotheses]]
+id = "H5"
+text = "The quality graders (new static findings, confirmed review findings) differ less between configurations than cost and time do"

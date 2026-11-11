@@ -1,6 +1,10 @@
 """Export the publishable results of selected jobs (PUB-01 to PUB-03, PRV-04).
 
 Usage: python -m atr.store.export <out dir> <job>... [--data-dir <dir>] [--db <file>]
+       [--experiment <file>]
+
+With --experiment, the experiment file is validated, copied into experiment.json,
+leak-checked and recorded like the other files.
 
 Deny by default: each run, task and target is copied through an allowlist of
 fields for its target's visibility class, and anything not listed is withheld.
@@ -15,7 +19,8 @@ Before anything is written, a leak check scans the whole export for the
 private terms listed in <data dir>/leak-terms.txt (one per line, kept outside
 the repository and required when a private target is exported), absolute
 paths, file names, secrets, e-mail addresses and, in private runs, any long
-text. Any finding blocks the export. Each export is recorded in
+text. Any finding blocks the export. The site check (atr.store.check_site) reuses
+the patterns and the helpers read_leak_terms and text_findings. Each export is recorded in
 <data dir>/publications.jsonl with its date, jobs, runs and allowlist version.
 """
 
@@ -26,6 +31,7 @@ import os
 import re
 import shutil
 import tempfile
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -122,23 +128,120 @@ def build_export(con: duckdb.DuckDBPyConnection, jobs: list[str]) -> dict[str, o
     }
 
 
+def read_leak_terms(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    return [line.strip() for line in path.read_text().splitlines()
+            if line.strip() and not line.startswith("#")]
+
+
+def text_findings(name: str, text: str, terms: list[str],
+                  labels: tuple[str, ...] = tuple(PATTERNS)) -> list[str]:
+    findings = []
+    lowered = text.lower()
+    for term in terms:
+        if re.search(rf"(?<!\w){re.escape(term.lower())}(?!\w)", lowered):
+            findings.append(f"{name}: private term {term!r}")
+    for label, pattern in PATTERNS.items():
+        if label not in labels:
+            continue
+        for match in sorted(set(pattern.findall(text)))[:5]:
+            findings.append(f"{name}: {label} {match!r}")
+    return findings
+
+
 def leak_check(export: dict[str, object], private_terms: list[str], private: set[str]) -> list[str]:
     findings = []
     for name, content in export.items():
-        text = json.dumps(content, ensure_ascii=False)
-        lowered = text.lower()
-        for term in private_terms:
-            if re.search(rf"(?<!\w){re.escape(term.lower())}(?!\w)", lowered):
-                findings.append(f"{name}: private term {term!r}")
-        for label, pattern in PATTERNS.items():
-            for match in sorted(set(pattern.findall(text)))[:5]:
-                findings.append(f"{name}: {label} {match!r}")
+        findings += text_findings(name, json.dumps(content, ensure_ascii=False), private_terms)
     for run in export["runs.json"]:
         if run.get("codename") in private:
             for field, value in run.items():
                 if isinstance(value, str) and len(value) > LONG_TEXT:
                     findings.append(f"runs.json: long text in {field} of {run['trial']}")
     return findings
+
+
+def _table(value: object, where: str, required: tuple, optional: tuple = ()) -> dict:
+    if not isinstance(value, dict):
+        raise SystemExit(f"experiment file: {where} must be a table")
+    unknown = sorted(set(value) - set(required) - set(optional))
+    if unknown:
+        raise SystemExit(f"experiment file: unknown key {unknown[0]!r} in {where}")
+    for key in required:
+        if key not in value:
+            raise SystemExit(f"experiment file: {where} lacks the key {key!r}")
+    for key, item in value.items():
+        if key != "status" and not isinstance(item, str):
+            raise SystemExit(f"experiment file: {key!r} in {where} must be a string")
+    return value
+
+
+def _entries(data: dict, key: str) -> list:
+    items = data[key]
+    if not isinstance(items, list) or not items:
+        raise SystemExit(f"experiment file: {key!r} must be a non-empty list of tables")
+    return items
+
+
+def load_experiment(path: Path) -> dict:
+    try:
+        with path.open("rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise SystemExit(f"cannot read the experiment file {path}: {error}") from None
+    top = ("preliminary", "planned_repetitions", "configurations", "questions", "hypotheses")
+    unknown = sorted(set(data) - set(top))
+    if unknown:
+        raise SystemExit(f"experiment file: unknown key {unknown[0]!r}")
+    for key in top:
+        if key not in data:
+            raise SystemExit(f"experiment file lacks the key {key!r}")
+    if not isinstance(data["preliminary"], bool):
+        raise SystemExit("experiment file: 'preliminary' must be true or false")
+    repetitions = data["planned_repetitions"]
+    if isinstance(repetitions, bool) or not isinstance(repetitions, int):
+        raise SystemExit("experiment file: 'planned_repetitions' must be an integer")
+
+    questions = []
+    for i, q in enumerate(_entries(data, "questions")):
+        q = _table(q, f"questions[{i}]", ("id", "text", "status"), ("reason", "answer"))
+        if q["status"] not in ("answered", "not_yet_answered"):
+            raise SystemExit(f"experiment file: question {q['id']!r} has the unknown status {q['status']!r}")
+        questions.append({"id": q["id"], "text": q["text"], "status": q["status"],
+                          "reason": q.get("reason"), "answer": q.get("answer")})
+    ids = [q["id"] for q in questions]
+    for question_id in ids:
+        if ids.count(question_id) > 1:
+            raise SystemExit(f"experiment file: duplicate question id {question_id!r}")
+
+    configurations = []
+    for i, c in enumerate(_entries(data, "configurations")):
+        c = _table(c, f"configurations[{i}]", ("label", "name", "workflow", "model", "question"),
+                   ("workflow_version",))
+        if c["question"] not in ids:
+            raise SystemExit(f"experiment file: configuration {c['label']!r} names the undeclared question {c['question']!r}")
+        configurations.append({"label": c["label"], "name": c["name"], "workflow": c["workflow"],
+                               "workflow_version": c.get("workflow_version"), "model": c["model"],
+                               "question": c["question"]})
+    labels = [c["label"] for c in configurations]
+    for label in labels:
+        if labels.count(label) > 1:
+            raise SystemExit(f"experiment file: duplicate configuration label {label!r}")
+
+    hypotheses = []
+    for i, h in enumerate(_entries(data, "hypotheses")):
+        h = _table(h, f"hypotheses[{i}]", ("id", "text"))
+        hypotheses.append({"id": h["id"], "text": h["text"]})
+    return {"preliminary": data["preliminary"], "planned_repetitions": repetitions,
+            "configurations": configurations, "questions": questions, "hypotheses": hypotheses}
+
+
+def check_configurations(experiment: dict, runs: list[dict]) -> None:
+    declared = {c["label"] for c in experiment["configurations"]}
+    for run in runs:
+        if run["config"] not in declared:
+            raise SystemExit(f"run config {run['config']!r} is not declared in the experiment file")
 
 
 def main() -> None:
@@ -148,16 +251,19 @@ def main() -> None:
     default_data = Path(os.environ.get("ATR_DATA_DIR", "~/atr/data")).expanduser()
     parser.add_argument("--data-dir", type=Path, default=default_data)
     parser.add_argument("--db", type=Path)
+    parser.add_argument("--experiment", type=Path)
     args = parser.parse_args()
 
     con = duckdb.connect(str(args.db or args.data_dir / "atr.duckdb"), read_only=True)
     export = build_export(con, args.jobs)
     if not export["runs.json"]:
         raise SystemExit("no runs found for these jobs")
+    if args.experiment:
+        export["experiment.json"] = load_experiment(args.experiment)
+        check_configurations(export["experiment.json"], export["runs.json"])
     private = {t["codename"] for t in export["targets.json"] if t["visibility"] != "public"}
     terms_file = args.data_dir / "leak-terms.txt"
-    terms = [line.strip() for line in terms_file.read_text().splitlines()
-             if line.strip() and not line.startswith("#")] if terms_file.exists() else []
+    terms = read_leak_terms(terms_file)
     if private and not terms:
         raise SystemExit(f"blocked: a private target is exported but {terms_file} lists no terms")
     findings = leak_check(export, terms, private)
