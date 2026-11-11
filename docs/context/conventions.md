@@ -48,4 +48,4 @@ Conventional commits with a scope: `feat(harness): ...`, `fix(harness): ...`, `d
 
 ## Tests
 
-The repository has no automated test suite. Harness changes are verified with check runs on the public synthetic task, recorded in the research reports in `documentation/research/` (see docs/context/testing.md).
+Unit tests for the harness live in `harness/tests/`, one `test_<module or concern>.py` file per subject, written with plain pytest functions and asserts, with no network, Docker or `~/atr` data. Changes that need Docker, Harbor or a model are verified with check runs on the public synthetic task, recorded in the research reports in `documentation/research/` (see docs/context/testing.md).

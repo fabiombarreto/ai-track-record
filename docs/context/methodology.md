@@ -1,7 +1,7 @@
 ---
 tdd: false                # true | false — the only key consulted by the TDD track
 tdd_evidence: null        # null | "<path-or-short-reason>" | "user-declared"
-test_frameworks: []       # array of frameworks detected in the scan (informative only)
+test_frameworks: [pytest] # array of frameworks detected in the scan (informative only)
 docs_sync: true           # true | false — per-project master switch for automated docs/ sync (docs-updater/docs-reviewer)
 figma_track: false        # true | false — opt-in switch for the Figma implementation track (design-to-code); default off, never heuristically flipped
 visual_first_approval: auto  # auto | human — default approval mode for the Figma Visual-First Track's visual-first blocking gate; only meaningful when figma_track: true
@@ -23,7 +23,7 @@ or an explicit user declaration during `*init` can.
 
 ### Observed signals
 
-- This repository has no automated test suite, so no test framework is listed above.
+- The harness has a pytest suite in `harness/tests/`, declared by the owner on 2026-11-11 for the MVP dashboard work; its commands are in `docs/context/testing.md`. With `tdd: false`, relay's test pair writes tests after the Implementer and Code Review.
 - Target A, one of the targets the benchmark runs on, declares `tdd: true` in its own relay context (D-052). That is the target's methodology, not this repository's, and does not apply here.
 
 ### How to activate

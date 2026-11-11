@@ -37,4 +37,4 @@ All modules run from `harness/` with `uv run python -m <module>`, or with the ha
 
 ## Tests
 
-There is no automated test suite. Harness changes are verified with check runs on the synthetic task and recorded in the research reports; `python -m py_compile` catches syntax errors. See docs/context/testing.md.
+The harness has a pytest suite in `harness/tests/`, with pytest pinned in the `dev` dependency group. Run it with `make test-pytest` from the repository root on Windows, or with `uv run pytest` from `harness/` in WSL. Changes that need Docker, Harbor or a model are still verified with check runs on the synthetic task and recorded in the research reports. See docs/context/testing.md.

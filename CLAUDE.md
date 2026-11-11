@@ -17,6 +17,7 @@ Local-first benchmark for AI coding agents: it runs the same specification-to-pu
 Run in WSL: `wsl.exe -d Ubuntu --exec bash -lc '<command>'` (never start the string with `/`).
 
 - `cd harness && uv sync`
+- `make test-pytest` from Windows, or `cd harness && uv run pytest` in WSL — the harness tests
 - `uv run python -m atr.store.load` — rebuild the store from `~/atr/data`
 - `uv run python -m atr.ops.budget` — spend against the US$ 800 ceiling
 - `docker compose -f infra/otel-collector/docker-compose.yaml up -d` — Collector
