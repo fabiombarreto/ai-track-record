@@ -1,6 +1,6 @@
 # Decision log
 
-> **Status:** Draft · **Last updated:** 2026-11-03 · **Owner:** Fabio Martins Barreto
+> **Status:** Draft · **Last updated:** 2026-11-11 · **Owner:** Fabio Martins Barreto
 
 Every product decision and its status:
 
@@ -72,6 +72,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 | [D-056](#d-056) | Gemini experiment deferred; its plan is kept for later | Accepted |
 | [D-057](#d-057) | Target A on open-weight models running on the operator's machine | Accepted |
 | [D-058](#d-058) | Local models experiment, outside the frozen MVP | Accepted |
+| [D-059](#d-059) | The MVP is published on its first repetition; the rest of its runs follow | Accepted |
 
 ## Decisions
 
@@ -271,6 +272,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Status:** Accepted, 2026-10-20
 - **Decision:** The MVP is the scope in [Scope, roadmap and risks](../product/06-scope-and-roadmap.md#3-phase-1-mvp): relay (current release and an earlier release) and vanilla on Claude Code; single-model assignments with Claude Haiku, Sonnet and Opus; three backend tasks on Target A; three repetitions, for 45 runs; the MVP graders; and a static dashboard. The capabilities tagged MVP in [Capabilities](../product/03-capabilities.md) are part of it.
 - **Consequences:** The scope is frozen: additions go to a later phase, and any change needs a new entry in this log. When the MVP runs late, the date moves instead ([D-043](#d-043)). Accepting this scope also accepted the proposals it contains: [D-013](#d-013), [D-014](#d-014), [D-015](#d-015), [D-016](#d-016), [D-018](#d-018), [D-019](#d-019), [D-022](#d-022), [D-025](#d-025) and [D-026](#d-026). The MVP budget is capped at US$ 800 ([D-028](#d-028)).
+- **Note (2026-11-10):** [D-059](#d-059) publishes the MVP on its first repetition, 12 runs, and runs the other 33 after M4, when API credits are available again.
 
 ### D-025
 
@@ -454,6 +456,7 @@ Entries are listed in ID order and keep their ID when their status changes. To c
 - **Status:** Accepted, 2026-10-20
 - **Decision:** If the MVP is at risk of missing its target date, the date is re-forecast. The MVP scope is not cut to protect the date.
 - **Consequences:** Each milestone is a checkpoint where the remaining work is re-estimated and the date is re-forecast. Since the date is no longer the main defense against scope creep, the MVP scope is frozen ([D-024](#d-024)), and anything new goes to a later phase.
+- **Note (2026-11-10):** [D-059](#d-059) makes one exception. The API credits are used up, so waiting for the rest of the runs would delay M4 by about four billing cycles. Instead, the MVP is published on its first repetition, and the rest of its runs follow after M4.
 
 ### D-044
 
@@ -643,3 +646,23 @@ Entries are listed in ID order and keep their ID when their status changes. To c
   - Relay gets only a probe: at this machine's speeds its runs would pass the three-hour limit, and its largest requests exceed the context the machine can hold ([what the runs need](../plans/local-models.md#51-what-the-runs-need)).
   - The harness changes it needs are the ones the [Google models plan](../plans/google-models.md) needs, so that plan would reuse them ([D-056](#d-056)).
 - **Consequences:** The plan is taken up. [D-031](#d-031) stays Proposed until the plan's WP4, after the compatibility checks, where the hypotheses are also declared.
+
+### D-059
+
+**The MVP is published on its first repetition; the rest of its runs follow**
+
+- **Status:** Accepted, 2026-11-11. Proposed 2026-11-10.
+- **Decision:** M3 stops after the first repetition of the MVP experiment ([D-024](#d-024)). That repetition has 12 runs: the reference, smaller-model, larger-model and baseline configurations, each on Target A's three tasks, all of them already graded. M3 finishes on those 12 runs with the blind confirmation of their review findings and the analysis. M4 then publishes them, and every result is marked preliminary ([rigor rule 9](../product/04-measurement.md#8-rigor-rules)). The other 33 runs of the frozen design are deferred, not dropped: the three earlier-release runs of the first repetition, then repetitions 2 and 3. They run after M4 and are paid only from the included API credits of later billing cycles ([D-049](#d-049)), with no purchased credits. The dashboard is updated as each repetition is completed.
+- **Why:**
+  - The included credits of the current billing cycle are used up. On 2026-11-10 the owner decided not to buy credits for now.
+  - At the first repetition's costs, the 33 runs come to about US$ 320–360, reviews and retries included. At US$ 100 per cycle that is about four billing cycles. Under [D-043](#d-043), M4 would wait until about March 2027, although the 12 runs are already graded.
+  - The first repetition covers four of the five configurations on every task. On the measures the comparison rests on ([D-053](#d-053)), cost, time, robustness and the quality graders, its differences are large ([M3 results](../research/m3-results.md#the-first-repetition)).
+- **Considerations:**
+  - With one run per cell, the 95% intervals ([rigor rule 3](../product/04-measurement.md#8-rigor-rules)) and pass@k ([ANL-04](../product/03-capabilities.md#7-storage-and-analysis)) cannot be computed, and SC-4 cannot be checked. Repetitions of the same configuration have differed widely ([Phase 0 results](../research/phase-0-results.md)), so one run per cell can mislead. Every published result shows its sample size and the preliminary label.
+  - H3 compares relay 0.49.0 with 0.47.0 and stays unanswered until the earlier-release runs exist. The 0.47.0 pilots of M2 can be shown as context, but not as a configuration, since they ran in another batch on an earlier harness.
+  - When credits return, the runs keep the order of the design: first the earlier release, which completes the first repetition and answers H3, then repetitions 2 and 3, each in the order drawn for it.
+- **Consequences:**
+  - It revisits [D-024](#d-024) and [D-043](#d-043), which record it in a note each. The frozen design stays as it is; only the publication comes before the 45 runs are complete.
+  - SC-1 is met with the first repetition's 12 runs. SC-4 is checked when repetitions 2 and 3 exist. The [roadmap](../product/06-scope-and-roadmap.md#4-schedule-to-the-mvp) records the re-forecast.
+  - The ceiling ([D-028](#d-028)) does not change. MVP spend stays at US$ 163.81 until credits return.
+  - The local models experiment ([D-058](#d-058)) needs no API credits for its runs. Its independent reviews do, so they wait like the MVP's runs, and its WP4 records that.

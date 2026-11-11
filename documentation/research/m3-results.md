@@ -1,8 +1,8 @@
 # M3 results: the MVP runs
 
-> **Status:** In progress · **Last updated:** 2026-11-02 · **Owner:** Fabio Martins Barreto
+> **Status:** In progress · **Last updated:** 2026-11-11 · **Owner:** Fabio Martins Barreto
 
-This report records milestone M3: the 45 runs of the MVP experiment, 3 tasks on Target A × 5 configurations × 3 repetitions, with their grades and analysis ([schedule](../product/06-scope-and-roadmap.md#4-schedule-to-the-mvp)). Target A and its tasks are described in the [M1 results](m1-results.md), and the harness and graders in the [M2 results](m2-results.md).
+This report records milestone M3: the 45 runs of the MVP experiment, 3 tasks on Target A × 5 configurations × 3 repetitions, with their grades and analysis ([schedule](../product/06-scope-and-roadmap.md#4-schedule-to-the-mvp)). The API credits ran out after the first repetition. Under [D-059](../decisions/decision-log.md#d-059), M3 closes on that repetition's 12 runs, and the other 33 follow after M4. Target A and its tasks are described in the [M1 results](m1-results.md), and the harness and graders in the [M2 results](m2-results.md).
 
 ## Progress
 
@@ -12,9 +12,9 @@ This report records milestone M3: the 45 runs of the MVP experiment, 3 tasks on 
 | Harness updates for relay 0.49.0 | Done | 2026-10-31 |
 | Hypotheses declared ([D-020](../decisions/decision-log.md#d-020)) | Done | 2026-10-31 |
 | Pilot runs of relay 0.49.0 on Target A | Done | 2026-11-01 |
-| The 45 runs, in three batches | In progress: 12 of 45 | |
-| Grading: oracle, existing tests, static analysis, independent review, protocol check | In progress: 12 of 45 | |
-| Blind confirmation of review findings, 15 runs | Not started | |
+| The 45 runs, in three batches | Stopped at 12 of 45: the first repetition, without the earlier release ([D-059](../decisions/decision-log.md#d-059)); the other 33 follow after M4 | 2026-11-10 |
+| Grading: oracle, existing tests, static analysis, independent review, protocol check | Done for the 12 runs | 2026-11-10 |
+| Blind confirmation of review findings, one run per configuration and task: 12 runs | Not started | |
 | Telemetry metrics short of the events | Done | 2026-11-01 |
 | Analysis | Not started | |
 
@@ -53,7 +53,7 @@ Declared on 2026-10-31, before the pilots and the batches.
 | H4 | Opus does not improve on Sonnet's oracle result, and costs more | Rewards and cost of the larger-model and reference runs |
 | H5 | The quality graders (new static findings, confirmed review findings) differ less between configurations than cost and time do | Graders across the five configurations |
 
-With three repetitions per cell, every comparison is labeled as a small sample ([D-020](../decisions/decision-log.md#d-020)).
+With three repetitions per cell, every comparison is labeled as a small sample ([D-020](../decisions/decision-log.md#d-020)). Until repetitions 2 and 3 exist, M3 has one run per cell, so every result is marked preliminary ([D-059](../decisions/decision-log.md#d-059)). H3 needs the earlier-release runs, so it is answered once they run.
 
 ## Pilots
 
@@ -86,6 +86,25 @@ A run that fails before its agent makes any API call, such as when Docker Deskto
 The last attempt met the oracle with the code it left, but it ended before relay's protocol finished, so it is set aside like the others.
 
 Since then the launcher starts a run only if it fits in what is left of the month's API allowance at the highest cost seen for its configuration, and it stops the batch when a run ends without a result. With US$ 56 left for November, the next session fills the empty cells that most comparisons depend on: the baseline on task 02, the reference on tasks 01 and 02, then the larger model on task 01 if it still fits, with the independent reviews of the finished runs. The three runs of the earlier release wait for the next allowance, since one alone would not complete its row.
+
+That session ran all four runs and the reviews of the finished ones. The month's included credits were then used up, and the owner decided on 2026-11-10 not to buy credits for now. The batches stop there. The earlier release and repetitions 2 and 3 run after M4, from the included credits of later billing cycles, in the order drawn for each ([D-059](../decisions/decision-log.md#d-059)).
+
+## The first repetition
+
+Twelve runs of relay 0.49.0 and vanilla on Target A, one per configuration and task. Each cell gives the oracle result (criteria satisfied), the run's cost in US$ and its wall-clock time.
+
+| Configuration | Task 01 | Task 02 | Task 03 |
+|---|---|---|---|
+| Reference: relay, Sonnet | Met (1.0) · 11.41 · 30 min | Met (1.0) · 8.92 · 27 min | Not met (0.1) · 9.66 · 35 min |
+| Smaller model: relay, Haiku | Met (1.0) · 4.05 · 60 min | Not met (0.0) · 0.72 · 9 min | Not met (0.1) · 3.52 · 48 min |
+| Larger model: relay, Opus | Not met (0.9) · 21.68 · 48 min | Halted, not met (0.0) · 13.35 · 35 min | Not met (0.1) · 21.06 · 44 min |
+| Earlier release: relay 0.47.0, Sonnet | not run | not run | not run |
+| Baseline: vanilla, Sonnet | Met (1.0) · 0.45 · 2 min | Met (1.0) · 0.55 · 3 min | Met (1.0) · 0.57 · 4 min |
+
+- Every run kept the existing tests passing, and none added a static analysis finding. All 12 were reviewed, at US$ 2.56 in total. The runs themselves cost US$ 95.93.
+- The Opus run on task 02 halted with `FAILED_IMPLEMENT_FAILED_AFTER_N_RETRIES`. The other relay runs finished their protocol, and the protocol check found no skipped step.
+- Each of the three relay runs on task 03 satisfied one criterion, although the 0.49.0 pilot on Sonnet satisfied all of them ([Pilots](#pilots)). Before any comparison, the analysis checks whether that comes from the runs or from the grading.
+- The results are preliminary: one run per cell ([D-059](../decisions/decision-log.md#d-059)).
 
 ## Telemetry metrics short of the events
 
